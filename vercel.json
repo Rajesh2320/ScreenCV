@@ -1,29 +1,16 @@
 {
   "version": 2,
-  "buildCommand": "npm install",
-  "env": {},
-  "functions": {
-    "api/candidate/*.js": {
-      "memory": 1024,
-      "maxDuration": 60
-    },
-    "api/admin/*.js": {
-      "memory": 1024,
-      "maxDuration": 60
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
     }
-  },
+  ],
   "routes": [
     {
-      "src": "/api/candidate/(.*)",
-      "dest": "/api/candidate/$1"
-    },
-    {
-      "src": "/api/admin/(.*)",
-      "dest": "/api/admin/$1"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/public/$1"
+      "dest": "/server.js"
     }
-  ]
+  ],
+  "env": {}
 }

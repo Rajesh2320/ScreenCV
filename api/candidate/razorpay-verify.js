@@ -2,6 +2,7 @@
 // IMPROVED: Verify Razorpay payment, handle ALL outcomes (captured, failed, cancelled)
 // Records all payment attempts in candidate_payments with proper status + error messages
 
+
 const Razorpay = require("razorpay");
 const { supabase } = require("../../lib/supabase-client");
 const { analyzeResumeVsJob } = require("./analyze");

@@ -31,10 +31,9 @@
             text-align: center;
         }
 
-        .success-icon {
+        .status-icon {
             width: 80px;
             height: 80px;
-            background: #27AE60;
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -43,7 +42,20 @@
             animation: scaleIn 0.6s ease-out;
         }
 
-        .success-icon svg {
+        /* Status icon colors */
+        .status-icon.success {
+            background: #27AE60;
+        }
+
+        .status-icon.failed {
+            background: #E74C3C;
+        }
+
+        .status-icon.cancelled {
+            background: #F39C12;
+        }
+
+        .status-icon svg {
             width: 50px;
             height: 50px;
             stroke: white;
@@ -87,6 +99,18 @@
             border-radius: 8px;
         }
 
+        .info-box.success {
+            border-left-color: #27AE60;
+        }
+
+        .info-box.failed {
+            border-left-color: #E74C3C;
+        }
+
+        .info-box.cancelled {
+            border-left-color: #F39C12;
+        }
+
         .info-box p {
             color: #555;
             font-size: 14px;
@@ -96,6 +120,16 @@
 
         .info-box strong {
             color: #2C3E50;
+        }
+
+        .error-message {
+            background: #FEE;
+            border: 1px solid #FCC;
+            color: #C33;
+            padding: 12px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-size: 13px;
         }
 
         .action-buttons {
@@ -142,8 +176,23 @@
             transform: translateY(-2px);
         }
 
+        .btn-danger {
+            background: #E74C3C;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #C0392B;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(231, 76, 60, 0.3);
+        }
+
         .checkmark-animation {
             animation: checkmark 0.8s ease-out 0.3s both;
+        }
+
+        .x-animation {
+            animation: x-mark 0.8s ease-out 0.3s both;
         }
 
         @keyframes checkmark {
@@ -154,6 +203,17 @@
             100% {
                 stroke-dasharray: 0;
                 stroke-dashoffset: 0;
+            }
+        }
+
+        @keyframes x-mark {
+            0% {
+                transform: scale(0) rotate(-45deg);
+                opacity: 0;
+            }
+            100% {
+                transform: scale(1) rotate(0);
+                opacity: 1;
             }
         }
 
@@ -188,6 +248,10 @@
             font-weight: 500;
         }
 
+        .hidden {
+            display: none !important;
+        }
+
         @media (max-width: 480px) {
             .container {
                 padding: 40px 20px;
@@ -213,56 +277,146 @@
 </head>
 <body>
     <div class="container">
-        <div class="success-icon">
-            <svg viewBox="0 0 24 24" class="checkmark-animation">
-                <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
+        <!-- Success Status -->
+        <div id="success-view">
+            <div class="status-icon success">
+                <svg viewBox="0 0 24 24" class="checkmark-animation">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+
+            <h1>Payment Successful! ✓</h1>
+            <p class="subtitle">Your report is being generated and will arrive in your email within 2-3 minutes.</p>
+
+            <div class="info-box success">
+                <p><strong>📧 Check Your Email</strong></p>
+                <p>Your detailed analysis report has been sent to your registered email address. Please check your inbox and spam folder.</p>
+            </div>
+
+            <div class="info-box success">
+                <p><strong>📄 Your Report Includes:</strong></p>
+                <p>✓ Match Score breakdown</p>
+                <p>✓ Your key strengths</p>
+                <p>✓ Areas to improve</p>
+                <p>✓ Likely interview questions</p>
+                <p>✓ Action plan & recommendations</p>
+            </div>
+
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">⚡</div>
+                    <div class="feature-text">Instant Analysis</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🎯</div>
+                    <div class="feature-text">AI-Powered</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📱</div>
+                    <div class="feature-text">Mobile Friendly</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔒</div>
+                    <div class="feature-text">Secure & Private</div>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <a href="/" class="btn btn-primary">Analyze Another Resume</a>
+            </div>
         </div>
 
-        <h1>Analysis Complete! ✓</h1>
-        <p class="subtitle">Your resume has been analyzed and results are being prepared.</p>
-
-        <div class="info-box">
-            <p><strong>📧 Check Your Email</strong></p>
-            <p>Your detailed analysis report has been sent to your registered email address. Please check your inbox (and spam folder just in case).</p>
-        </div>
-
-        <div class="info-box">
-            <p><strong>📄 Your Report Includes:</strong></p>
-            <p>✓ Match Score breakdown</p>
-            <p>✓ Your key strengths</p>
-            <p>✓ Areas to improve</p>
-            <p>✓ Likely interview questions</p>
-            <p>✓ Action plan & recommendations</p>
-        </div>
-
-        <div class="features">
-            <div class="feature">
-                <div class="feature-icon">⚡</div>
-                <div class="feature-text">Instant Analysis</div>
+        <!-- Failed Status -->
+        <div id="failed-view" class="hidden">
+            <div class="status-icon failed">
+                <svg viewBox="0 0 24 24" class="x-animation">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
             </div>
-            <div class="feature">
-                <div class="feature-icon">🎯</div>
-                <div class="feature-text">AI-Powered</div>
+
+            <h1>Payment Failed ❌</h1>
+            <p class="subtitle">We couldn't process your payment. Please try again with a different method.</p>
+
+            <div id="error-message" class="error-message"></div>
+
+            <div class="info-box failed">
+                <p><strong>Why did this happen?</strong></p>
+                <p>Your card or payment method was declined by the issuing bank. This could be due to:</p>
+                <p>• Insufficient funds</p>
+                <p>• Card expired or blocked</p>
+                <p>• Transaction limit exceeded</p>
+                <p>• Security verification failed</p>
             </div>
-            <div class="feature">
-                <div class="feature-icon">📱</div>
-                <div class="feature-text">Mobile Friendly</div>
-            </div>
-            <div class="feature">
-                <div class="feature-icon">🔒</div>
-                <div class="feature-text">Secure & Private</div>
+
+            <div class="action-buttons">
+                <a href="/" class="btn btn-danger">Retry Payment</a>
+                <a href="/" class="btn btn-secondary">Analyze Another Resume</a>
             </div>
         </div>
 
-        <div class="action-buttons">
-            <a href="/" class="btn btn-primary">Analyze Another Resume</a>
-            <a href="https://mail.google.com" target="_blank" class="btn btn-secondary">Check Email</a>
+        <!-- Cancelled Status -->
+        <div id="cancelled-view" class="hidden">
+            <div class="status-icon cancelled">
+                <svg viewBox="0 0 24 24" class="x-animation">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </div>
+
+            <h1>Payment Cancelled ⏸</h1>
+            <p class="subtitle">You cancelled the payment. No charges have been made.</p>
+
+            <div class="info-box cancelled">
+                <p><strong>Want to continue?</strong></p>
+                <p>You can retry the payment whenever you're ready. Your resume details have been saved.</p>
+            </div>
+
+            <div class="action-buttons">
+                <a href="/" class="btn btn-danger">Retry Payment</a>
+                <a href="/" class="btn btn-secondary">Analyze Another Resume</a>
+            </div>
         </div>
 
         <p class="footer-text">
-            Having trouble? <a href="mailto:support@screencv.com" style="color: #667eea; text-decoration: none;">Contact Support</a>
+            © 2026 ScreenCV - Your Resume Vs The Job
         </p>
     </div>
+
+    <script>
+        // Get URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const status = params.get('status') || 'captured';
+        const errorMessage = params.get('message') || params.get('errorMessage');
+
+        console.log('[Success Page] Status:', status);
+        console.log('[Success Page] Error Message:', errorMessage);
+
+        // Show appropriate view based on status
+        document.getElementById('success-view').classList.add('hidden');
+        document.getElementById('failed-view').classList.add('hidden');
+        document.getElementById('cancelled-view').classList.add('hidden');
+
+        if (status === 'captured' || status === 'CAPTURED') {
+            console.log('[Success Page] Showing SUCCESS view');
+            document.getElementById('success-view').classList.remove('hidden');
+        } else if (status === 'failed' || status === 'FAILED') {
+            console.log('[Success Page] Showing FAILED view');
+            document.getElementById('failed-view').classList.remove('hidden');
+            
+            // Show error message if provided
+            if (errorMessage) {
+                const errorBox = document.getElementById('error-message');
+                errorBox.textContent = '❌ ' + decodeURIComponent(errorMessage);
+                errorBox.classList.remove('hidden');
+            }
+        } else if (status === 'cancelled' || status === 'CANCELLED') {
+            console.log('[Success Page] Showing CANCELLED view');
+            document.getElementById('cancelled-view').classList.remove('hidden');
+        } else {
+            console.log('[Success Page] Unknown status, showing SUCCESS as default');
+            document.getElementById('success-view').classList.remove('hidden');
+        }
+    </script>
 </body>
 </html>

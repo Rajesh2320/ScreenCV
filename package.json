@@ -7,6 +7,9 @@
     "dev": "node server.js",
     "build": "echo 'Vercel builds automatically'",
     "test": "echo 'Add tests here'"
+    "engines": {
+    "node": "24.x"
+  }
   },
   "keywords": [
     "resume",

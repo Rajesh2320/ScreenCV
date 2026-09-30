@@ -137,6 +137,7 @@ async function verifyPayment(req, res) {
         .from("candidate_payments")
         .insert({
           submission_id: dbSubmission.id,
+          candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: dbSubmission.email,
           razorpay_order_id: orderId,
           razorpay_payment_id: paymentId,
@@ -220,6 +221,7 @@ async function verifyPayment(req, res) {
         .from("candidate_payments")
         .insert({
           submission_id: dbSubmission.id,
+          candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: dbSubmission.email,
           razorpay_order_id: orderId,
           razorpay_payment_id: paymentId,
@@ -283,6 +285,7 @@ async function verifyPayment(req, res) {
         .from("candidate_payments")
         .insert({
           submission_id: dbSubmission.id,
+          candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: dbSubmission.email,
           razorpay_order_id: orderId,
           razorpay_payment_id: paymentId,
@@ -331,6 +334,7 @@ async function verifyPayment(req, res) {
         .from("candidate_payments")
         .insert({
           submission_id: dbSubmission.id,
+          candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: dbSubmission.email,
           razorpay_order_id: orderId,
           razorpay_payment_id: paymentId,

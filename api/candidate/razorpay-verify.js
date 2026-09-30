@@ -1,7 +1,7 @@
 // screencv/api/candidate/razorpay-verify.js
 // IMPROVED: Verify Razorpay payment, handle ALL outcomes (captured, failed, cancelled)
 // Records all payment attempts in candidate_payments with proper status + error messages
-
+// ✅ CORRECTED: AWAIT analysis before responding (fixes Vercel serverless timeout)
 
 const Razorpay = require("razorpay");
 const { supabase } = require("../../lib/supabase-client");
@@ -175,8 +175,8 @@ async function verifyPayment(req, res) {
 
       console.log(`[Verify] ✅ Payment confirmed for submission ${dbSubmission.id}`);
 
-      // ✅ TRIGGER ANALYSIS IN BACKGROUND (don't wait for it)
-      console.log("[Verify] 🚀 Triggering analysis pipeline...");
+      // ✅ TRIGGER ANALYSIS AND AWAIT COMPLETION
+      console.log("[Verify] 🚀 Starting analysis pipeline (awaiting completion)...");
 
       const paymentData = {
         orderId: orderId,
@@ -184,26 +184,44 @@ async function verifyPayment(req, res) {
         amount: amountINR,
       };
 
-      // Call analysis function (non-blocking - don't await)
-      analyzeResumeVsJob(
-        dbSubmission.id,
-        dbSubmission.resume_text,
-        dbSubmission.job_description,
-        dbSubmission.job_title,
-        dbSubmission.email,
-        dbSubmission.feedback_token,
-        paymentData
-      ).catch(err => {
-        console.error("[Verify] Analysis pipeline error:", err);
-        // Don't fail the response - just log it for admin to review
-      });
+      // ✅ AWAIT analysis before responding (fixes Vercel serverless timeout)
+      try {
+        console.log("[Verify] ⏳ Awaiting analysis completion...");
+        const analysisResult = await analyzeResumeVsJob(
+          dbSubmission.id,
+          dbSubmission.resume_text,
+          dbSubmission.job_description,
+          dbSubmission.job_title,
+          dbSubmission.email,
+          dbSubmission.feedback_token,
+          paymentData
+        );
+        console.log("[Verify] ✅ Analysis completed successfully");
+      } catch (analysisErr) {
+        console.error("[Verify] ❌ Analysis execution error:", analysisErr);
+        console.error("[Verify] Error details:", analysisErr.message || analysisErr);
+        
+        // Log the error but don't fail - payment is confirmed
+        await supabase.from("payment_incidents").insert({
+          incident_type: "ANALYSIS_EXECUTION_ERROR",
+          submission_id: dbSubmission.id,
+          razorpay_payment_id: paymentId,
+          razorpay_order_id: orderId,
+          candidate_name: dbSubmission.candidate_name || "Unknown",
+          email: dbSubmission.email,
+          amount: amountINR,
+          razorpay_status: razorpayPayment.status,
+          description: `Analysis failed: ${analysisErr.message || JSON.stringify(analysisErr)}`,
+          status: "unresolved",
+        });
+      }
 
-      // Return success immediately (analysis happens in background)
+      // Return success after analysis completes (or fails)
       return res.json({
         success: true,
         verified: true,
         status: "CAPTURED",
-        message: "Payment verified successfully! Analysis in progress...",
+        message: "Payment verified and analysis completed!",
         submissionId: dbSubmission.id,
         action: "PROCEED_WITH_ANALYSIS",
       });

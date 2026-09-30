@@ -1,5 +1,6 @@
 // screencv/api/candidate/analyze.js
 // Analyze resume with enhanced recruiter logic + store all costs & new fields
+// ✅ CORRECTED: Returns status and rethrows errors for proper error handling
 
 const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
@@ -251,8 +252,23 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
     }
 
     console.log("[Analyze] ✅ Analysis pipeline complete");
+
+    // ✅ RETURN SUCCESS STATUS
+    return {
+      success: true,
+      message: "Analysis completed successfully",
+      submissionId: submissionId,
+      reviewId: reviewId,
+    };
+
   } catch (error) {
-    console.error("[Analyze] Unexpected error:", error);
+    console.error("[Analyze] ❌ Unexpected error:", error);
+    console.error("[Analyze] Error type:", error.constructor.name);
+    console.error("[Analyze] Error message:", error.message);
+    console.error("[Analyze] Full error:", error);
+    
+    // ✅ RETHROW error so caller knows analysis failed
+    throw error;
   }
 }
 

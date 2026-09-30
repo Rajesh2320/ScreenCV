@@ -2,7 +2,7 @@
   "name": "screencv",
   "version": "1.0.0",
   "description": "AI-powered resume screener for job candidates",
-  "main": "api/candidate/submit.js",
+  "main": "server.js",
   "scripts": {
     "dev": "node server.js",
     "build": "echo 'Vercel builds automatically'",

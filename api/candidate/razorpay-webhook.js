@@ -175,6 +175,7 @@ async function handleCapturedPayment(payment, order, res) {
       .from("candidate_payments")
       .insert({
         submission_id: submission.id,
+        candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
         email: submission.email,
         razorpay_order_id: order.id,
         razorpay_payment_id: payment.id,
@@ -313,6 +314,7 @@ async function handleFailedPayment(payment, order, res) {
         .from("candidate_payments")
         .insert({
           submission_id: submission.id,
+          candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: submission.email,
           razorpay_order_id: order.id,
           razorpay_payment_id: payment.id,
@@ -381,6 +383,7 @@ async function handleCancelledPayment(payment, order, res) {
         .from("candidate_payments")
         .insert({
           submission_id: submission.id,
+          candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: submission.email,
           razorpay_order_id: order.id,
           razorpay_payment_id: payment.id,
@@ -445,6 +448,7 @@ async function handleAuthorizedPayment(payment, order, res) {
         .from("candidate_payments")
         .insert({
           submission_id: submission.id,
+          candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
           email: submission.email,
           razorpay_order_id: order.id,
           razorpay_payment_id: payment.id,

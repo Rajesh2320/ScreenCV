@@ -27,6 +27,8 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
     console.log(`[Analyze] ✅ Analysis complete. Score: ${analysisData.overall_score || analysisData.os}/100`);
 
     // Extract all fields - map abbreviated keys to full names
+    // ✅ CANDIDATE NAME FROM CLAUDE (more reliable than parsing resume)
+    const candidateName = analysisData.candidate_name || analysisData.cn || "Candidate";
     const executiveSummary = analysisData.executive_summary || analysisData.es;
     const jobMatchAnalysis = analysisData.job_match_analysis || analysisData.jma;
     const experienceAssessment = analysisData.experience_assessment || analysisData.exp;
@@ -41,6 +43,8 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
     const interviewQuestions = analysisData.interview_questions || analysisData.iq;
     const interviewRecommendation = analysisData.interview_recommendation || analysisData.ir || "CONSIDER";
     const overallScore = analysisData.overall_score || analysisData.os;
+
+    console.log(`[Analyze] Candidate name from Claude: ${candidateName}`);
 
     // Handle skills mapping (abbreviated or full names)
     let skillsData = skills;
@@ -66,18 +70,6 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
 
     console.log(`[Analyze] Tokens - Input: ${inputTokens}, Output: ${outputTokens}, Total: ${analysisTokensTotal}`);
     console.log(`[Analyze] Cost - USD: $${costUSD.toFixed(6)}, INR: ₹${costINR.toFixed(2)}`);
-
-    // Extract candidate name from resume (usually first line or first few words)
-    let candidateName = "Candidate";
-    if (resumeText && resumeText.length > 0) {
-      const firstLine = resumeText.split('\n')[0].trim();
-      // If first line looks like a name (not too long, no special chars)
-      if (firstLine.length > 0 && firstLine.length < 100 && !firstLine.includes('@') && !firstLine.includes('http')) {
-        candidateName = firstLine;
-      }
-    }
-
-    console.log(`[Analyze] Extracted candidate name: ${candidateName}`);
 
     // Generate HTML report with ALL NEW FIELDS
     let htmlContent = await generateRecruiterReportHTML({

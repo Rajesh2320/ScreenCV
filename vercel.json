@@ -6,12 +6,20 @@
     "api/candidate/*.js": {
       "memory": 1024,
       "maxDuration": 60
+    },
+    "api/admin/*.js": {
+      "memory": 1024,
+      "maxDuration": 60
     }
   },
   "routes": [
     {
       "src": "/api/candidate/(.*)",
       "dest": "/api/candidate/$1"
+    },
+    {
+      "src": "/api/admin/(.*)",
+      "dest": "/api/admin/$1"
     },
     {
       "src": "/(.*)",

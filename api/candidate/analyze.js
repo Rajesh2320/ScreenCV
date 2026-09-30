@@ -5,6 +5,7 @@ const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
 const { generateRecruiterReportHTML, replaceFeedbackToken } = require("../../lib/html-generator-recruiter");
 const { sendEmailWithPDF } = require("../../lib/nodemailer-sender");
+const { FEEDBACK_BASE_URL } = require("../../lib/constants");
 
 async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobTitle, candidateEmail, feedbackToken, paymentData) {
   try {
@@ -187,7 +188,7 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
           </p>
           
           <p style="font-size: 14px; margin-bottom: 20px;">
-            Please feel free to <a href="${process.env.FEEDBACK_BASE_URL || 'http://localhost:3000'}/feedback?token=${feedbackToken}" style="color: #667eea; text-decoration: none; font-weight: bold;">rate us</a> and also provide us with your valuable feedback.
+            Please feel free to <a href="${FEEDBACK_BASE_URL}/feedback?token=${feedbackToken}" style="color: #667eea; text-decoration: none; font-weight: bold;">rate us</a> and also provide us with your valuable feedback.
           </p>
           
           <p style="font-size: 14px; margin-bottom: 30px;">

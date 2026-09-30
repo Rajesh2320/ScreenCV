@@ -1,14 +1,9 @@
 // screencv/server.js
 // Express server with candidate + admin + feedback + PAYMENT + PUBLIC STATUS routes
 
-// ⭐ LOAD .env.local FIRST
-const dotenvResult = require("dotenv").config({ path: ".env.local" });
-if (dotenvResult.error) {
-  console.error("[ERROR] Failed to load .env.local:", dotenvResult.error);
-  process.exit(1);
-} else {
-  console.log("[OK] ✅ .env.local loaded successfully");
-}
+// ⭐ LOAD .env.local (Optional - Vercel uses environment variables)
+require("dotenv").config({ path: ".env.local", override: true });
+console.log("[OK] ✅ Environment loaded (local or Vercel)");
 
 const express = require("express");
 const fileUpload = require("express-fileupload");

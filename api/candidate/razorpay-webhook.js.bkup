@@ -1,0 +1,204 @@
+// screencv/api/candidate/razorpay-webhook.js
+// Handle Razorpay payment success webhook
+
+const crypto = require("crypto");
+const { supabase } = require("../../lib/supabase-client");
+const { RAZORPAY_KEY_SECRET } = require("../../lib/constants");
+const { analyzeResumeVsJob } = require("./analyze");
+
+// Verify Razorpay webhook signature
+function verifyWebhookSignature(body, signature) {
+  const expectedSignature = crypto
+    .createHmac("sha256", RAZORPAY_KEY_SECRET)
+    .update(body)
+    .digest("hex");
+
+  return expectedSignature === signature;
+}
+
+// Handle payment success webhook
+async function handlePaymentWebhook(req, res) {
+  try {
+    const signature = req.headers["x-razorpay-signature"];
+    const body = req.rawBody; // Raw body for signature verification
+
+    if (!signature || !body) {
+      console.error("[Webhook] Missing signature or body");
+      return res.status(400).json({ error: "Missing webhook data" });
+    }
+
+    // Verify signature
+    const isValid = verifyWebhookSignature(body, signature);
+
+    if (!isValid) {
+      console.error("[Webhook] ❌ Invalid webhook signature!");
+      return res.status(400).json({ error: "Invalid signature" });
+    }
+
+    console.log("[Webhook] ✅ Signature verified");
+
+    const event = JSON.parse(body);
+    const payment = event.payload.payment.entity;
+    const order = event.payload.order.entity;
+
+    console.log(
+      `[Webhook] Event: ${event.event}, Order: ${order.id}, Payment: ${payment.id}`
+    );
+
+    // Only process captured payments
+    if (event.event !== "payment.captured") {
+      console.log(`[Webhook] Ignoring event: ${event.event}`);
+      return res.json({ success: true });
+    }
+
+    // Get submission from order ID
+    const { data: submission, error: findError } = await supabase
+      .from("candidate_submissions")
+      .select("*")
+      .eq("razorpay_order_id", order.id)
+      .single();
+
+    if (findError || !submission) {
+      console.error("[Webhook] Submission not found for order:", order.id);
+
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "SUBMISSION_NOT_FOUND",
+        razorpay_payment_id: payment.id,
+        razorpay_order_id: order.id,
+        email: order.notes?.email,
+        amount: payment.amount / 100,
+        razorpay_status: payment.status,
+        description: `No submission found for order ${order.id}`,
+        status: "unresolved",
+      });
+
+      return res.json({
+        success: false,
+        error: "Submission not found",
+      });
+    }
+
+    // Update submission with payment confirmation
+    const { error: updateError } = await supabase
+      .from("candidate_submissions")
+      .update({
+        razorpay_payment_id: payment.id,
+        payment_status: "captured",
+        payment_date: new Date().toISOString(),
+        payment_amount: payment.amount / 100,
+      })
+      .eq("id", submission.id);
+
+    if (updateError) {
+      console.error("[Webhook] Failed to update submission:", updateError);
+
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "DB_UPDATE_FAILED",
+        submission_id: submission.id,
+        razorpay_payment_id: payment.id,
+        razorpay_order_id: order.id,
+        email: submission.email,
+        amount: payment.amount / 100,
+        razorpay_status: payment.status,
+        db_status: "UPDATE_FAILED",
+        description: `Failed to update submission: ${updateError.message}`,
+        status: "unresolved",
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to update payment status",
+      });
+    }
+
+    console.log(
+      `[Webhook] ✅ Payment confirmed for submission ${submission.id}`
+    );
+
+    // Queue analysis job (or run immediately if no queue)
+    try {
+      console.log(`[Webhook] Starting analysis for submission ${submission.id}...`);
+
+      const analysisResult = await analyzeResumeVsJob(
+        submission.id,
+        submission.resume_text,
+        submission.job_description,
+        submission.job_title,
+        submission.email,
+        submission.feedback_token,
+        {
+          // Payment info for email
+          orderId: order.id,
+          paymentId: payment.id,
+          amount: payment.amount / 100,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
+      if (!analysisResult.success) {
+        console.error(
+          "[Webhook] Analysis failed:",
+          analysisResult.error
+        );
+
+        // Log incident
+        await supabase.from("payment_incidents").insert({
+          incident_type: "ANALYSIS_FAILED",
+          submission_id: submission.id,
+          razorpay_payment_id: payment.id,
+          razorpay_order_id: order.id,
+          email: submission.email,
+          amount: payment.amount / 100,
+          razorpay_status: payment.status,
+          description: `Analysis failed: ${analysisResult.error}`,
+          status: "unresolved",
+        });
+
+        return res.json({
+          success: false,
+          error: "Analysis failed",
+        });
+      }
+
+      console.log(`[Webhook] ✅ Analysis complete and email sent`);
+
+      res.json({
+        success: true,
+        message: "Payment processed and analysis initiated",
+      });
+    } catch (analysisError) {
+      console.error("[Webhook] Unexpected error during analysis:", analysisError);
+
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "ANALYSIS_ERROR",
+        submission_id: submission.id,
+        razorpay_payment_id: payment.id,
+        razorpay_order_id: order.id,
+        email: submission.email,
+        amount: payment.amount / 100,
+        razorpay_status: payment.status,
+        description: `Unexpected error: ${analysisError.message}`,
+        status: "unresolved",
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "Analysis error",
+      });
+    }
+  } catch (error) {
+    console.error("[Webhook] Fatal error:", error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+}
+
+module.exports = {
+  handlePaymentWebhook,
+  verifyWebhookSignature,
+};

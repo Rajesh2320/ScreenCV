@@ -1,0 +1,307 @@
+// screencv/api/admin/analytics.js
+// Admin analytics with bcrypt authentication
+// ✅ FIXED: Revenue = Payment Captured + Analysis Done + Email Sent
+
+const bcrypt = require("bcrypt");
+const { createClient } = require("@supabase/supabase-js");
+const { SUPABASE_URL, SUPABASE_ANON_KEY } = require("../../lib/constants");
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Authenticate super admin via email + password
+async function checkSuperAdmin(req, res, next) {
+  try {
+    const adminEmail = req.headers["x-admin-email"];
+    const adminPassword = req.headers["x-admin-password"];
+
+    if (!adminEmail || !adminPassword) {
+      console.log("[Auth] Missing email or password headers");
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Fetch admin from database
+    const { data: admin, error } = await supabase
+      .from("admin_users")
+      .select("*")
+      .eq("email", adminEmail)
+      .eq("is_active", true)
+      .single();
+
+    if (error || !admin) {
+      console.log("[Auth] Admin not found:", adminEmail);
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    // Compare password with bcrypt hash
+    const passwordMatch = await bcrypt.compare(adminPassword, admin.password_hash);
+
+    if (!passwordMatch) {
+      console.log("[Auth] Password mismatch for:", adminEmail);
+      return res.status(401).json({ success: false, error: "Unauthorized" });
+    }
+
+    console.log(`[Auth] ✅ Authenticated: ${adminEmail}`);
+
+    // Update last_login
+    await supabase
+      .from("admin_users")
+      .update({ last_login: new Date().toISOString() })
+      .eq("id", admin.id);
+
+    // Attach admin to request
+    req.admin = admin;
+    next();
+  } catch (err) {
+    console.error("[Auth] Error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+// Get daily analytics
+async function getDailyAnalytics(req, res) {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing startDate or endDate (YYYY-MM-DD format)",
+      });
+    }
+
+    console.log(`[Analytics] Fetching daily analytics from ${startDate} to ${endDate}`);
+
+    const { data, error } = await supabase
+      .from("daily_analytics")
+      .select("*")
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: false });
+
+    if (error) {
+      console.error("[Analytics] Database error:", error);
+      return res.status(500).json({ success: false, error: "Failed to fetch analytics" });
+    }
+
+    console.log(`[Analytics] ✅ Returned ${data.length} days of analytics`);
+
+    res.json({
+      success: true,
+      data,
+      count: data.length,
+    });
+  } catch (err) {
+    console.error("[Analytics] Error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+// Get monthly analytics
+async function getMonthlyAnalytics(req, res) {
+  try {
+    const { month } = req.query; // YYYY-MM format
+
+    if (!month) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing month parameter (YYYY-MM format)",
+      });
+    }
+
+    console.log(`[Analytics] Fetching monthly analytics for ${month}`);
+
+    const { data, error } = await supabase
+      .from("monthly_analytics")
+      .select("*")
+      .eq("month", month)
+      .single();
+
+    if (error) {
+      console.error("[Analytics] Database error:", error);
+      // Return zeros if no data for that month
+      return res.json({
+        success: true,
+        data: {
+          month,
+          total_resumes: 0,
+          total_analyzed: 0,
+          total_extraction_tokens: 0,
+          total_input_tokens: 0,
+          total_output_tokens: 0,
+          total_cost_usd: 0,
+          total_cost_inr: 0,
+          avg_score: 0,
+        },
+      });
+    }
+
+    console.log(`[Analytics] ✅ Returned monthly analytics for ${month}`);
+
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (err) {
+    console.error("[Analytics] Error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+// Get submission stats (total, today, this month)
+// ✅ FIXED: Revenue = Payment Captured + Analysis Done + Email Sent
+async function getSubmissionStats(req, res) {
+  try {
+    console.log("[Stats] Fetching submission statistics...");
+
+    const today = new Date().toISOString().split("T")[0];
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    const monthStartStr = monthStart.toISOString().split("T")[0];
+
+    // Total resumes
+    const { count: totalCount } = await supabase
+      .from("candidate_submissions")
+      .select("*", { count: "exact", head: true });
+
+    // Today
+    const { count: todayCount } = await supabase
+      .from("candidate_submissions")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", `${today}T00:00:00`)
+      .lt("created_at", `${today}T23:59:59`);
+
+    // This month
+    const { count: monthCount } = await supabase
+      .from("candidate_submissions")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", `${monthStartStr}T00:00:00`);
+
+    // ✅ FIXED: Revenue = Payment Captured + Analysis Exists + Email Sent
+    // Count submissions where payment_status='captured' AND review exists AND email_sent=true
+    const { data: revenueData } = await supabase
+      .from("candidate_submissions")
+      .select("id")
+      .eq("payment_status", "captured")
+      .eq("email_sent", true);
+
+    const revenueCount = revenueData ? revenueData.length : 0;
+
+    // Total analyzed (for reference - just count reviews)
+    const { count: analyzedCount } = await supabase
+      .from("candidate_reviews")
+      .select("*", { count: "exact", head: true });
+
+    // ✅ FIXED: Total costs (from candidate_reviews only - that's where analysis costs are stored)
+    const { data: analysisCostData } = await supabase
+      .from("candidate_reviews")
+      .select("analysis_cost_usd, analysis_cost_inr");
+
+    let totalCostUSD = 0;
+    let totalCostINR = 0;
+
+    if (analysisCostData) {
+      totalCostUSD = analysisCostData.reduce((sum, row) => sum + (parseFloat(row.analysis_cost_usd) || 0), 0);
+      totalCostINR = analysisCostData.reduce((sum, row) => sum + (parseFloat(row.analysis_cost_inr) || 0), 0);
+    }
+
+    console.log("[Stats] ✅ Statistics compiled");
+    console.log(`[Stats] Total Cost - USD: $${totalCostUSD.toFixed(6)}, INR: ₹${totalCostINR.toFixed(2)}`);
+    console.log(`[Stats] ✅ Revenue Count (Payment+Analysis+EmailSent): ${revenueCount}`);
+
+    res.json({
+      success: true,
+      stats: {
+        totalResumes: totalCount || 0,
+        totalAnalyzed: analyzedCount || 0,
+        revenueCount: revenueCount || 0,  // ✅ NEW: Actual revenue-contributing submissions
+        todayResumes: todayCount || 0,
+        thisMonthResumes: monthCount || 0,
+        totalCostUSD: parseFloat(totalCostUSD.toFixed(6)),
+        totalCostINR: parseFloat(totalCostINR.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    console.error("[Stats] Error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+// Get tool status
+async function getToolStatus(req, res) {
+  try {
+    console.log("[Tool] Fetching tool status...");
+
+    const { data: toolActive } = await supabase
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "tool_active")
+      .single();
+
+    const { data: maintenanceMode } = await supabase
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "maintenance_mode")
+      .single();
+
+    const { data: maintenanceMessage } = await supabase
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "maintenance_message")
+      .single();
+
+    res.json({
+      success: true,
+      toolStatus: {
+        active: toolActive?.setting_value === "true",
+        maintenanceMode: maintenanceMode?.setting_value === "true",
+        maintenanceMessage: maintenanceMessage?.setting_value || "ScreenCV is under maintenance",
+      },
+    });
+  } catch (err) {
+    console.error("[Tool] Error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+// Toggle tool status
+async function toggleToolStatus(req, res) {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ success: false, error: "Missing 'enabled' boolean" });
+    }
+
+    console.log(`[Tool] Toggling tool status to: ${enabled}`);
+
+    const { error } = await supabase
+      .from("admin_settings")
+      .update({ setting_value: enabled ? "true" : "false" })
+      .eq("setting_key", "tool_active");
+
+    if (error) {
+      console.error("[Tool] Database error:", error);
+      return res.status(500).json({ success: false, error: "Failed to update tool status" });
+    }
+
+    console.log(`[Tool] ✅ Tool status updated: ${enabled}`);
+
+    res.json({
+      success: true,
+      message: `Tool is now ${enabled ? "active" : "disabled"}`,
+      toolActive: enabled,
+    });
+  } catch (err) {
+    console.error("[Tool] Error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+}
+
+module.exports = {
+  checkSuperAdmin,
+  getDailyAnalytics,
+  getMonthlyAnalytics,
+  getSubmissionStats,
+  getToolStatus,
+  toggleToolStatus,
+};

@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Rate ScreenCV - AI Resume Analysis</title>
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --primary: #667eea;
+      --primary-dark: #764ba2;
+      --success: #10b981;
+      --error: #ef4444;
+      --text-primary: #111827;
+      --text-secondary: #6b7280;
+      --border: #e5e7eb;
+      --gray-light: #f3f4f6;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .feedback-container {
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+      animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    /* ===== STAR RATING ===== */
+    .star-rating {
+      display: flex;
+      gap: 12px;
+      margin: 24px 0;
+      font-size: 44px;
+    }
+
+    .star {
+      cursor: pointer;
+      color: #fbbf24;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+      line-height: 1;
+      opacity: 0.3;
+    }
+
+    .star:hover {
+      color: #fbbf24;
+      transform: scale(1.15);
+      opacity: 1 !important;
+    }
+
+    .star.active {
+      color: #fbbf24;
+      opacity: 1;
+    }
+
+    .rating-text {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 12px;
+      font-weight: 500;
+      min-height: 20px;
+    }
+
+    /* ===== TEXTAREA ===== */
+    textarea {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 120px;
+      font-size: 14px;
+      transition: all 0.3s ease;
+      background: var(--gray-light);
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      background: white;
+      box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+    }
+
+    .char-count {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 6px;
+      text-align: right;
+    }
+
+    /* ===== BUTTONS ===== */
+    .button-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 40px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: var(--gray-light);
+      color: var(--text-primary);
+      border: 2px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--border);
+      border-color: var(--primary);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* ===== MESSAGES ===== */
+    .error-message,
+    .success-message {
+      display: none;
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      border-left: 4px solid;
+      animation: slideIn 0.3s ease;
+    }
+
+    .error-message {
+      background: #fee2e2;
+      color: #991b1b;
+      border-left-color: var(--error);
+    }
+
+    .success-message {
+      background: #dcfce7;
+      color: #15803d;
+      border-left-color: var(--success);
+    }
+
+    .error-message.active,
+    .success-message.active {
+      display: block;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ===== INVALID TOKEN ===== */
+    .invalid-token {
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .invalid-token h2 {
+      color: var(--error);
+      margin-bottom: 12px;
+    }
+
+    .invalid-token p {
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 640px) {
+      .feedback-container {
+        padding: 24px;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      .star-rating {
+        gap: 8px;
+        font-size: 36px;
+      }
+
+      .button-group {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="feedback-container">
+    <!-- ERROR MESSAGE -->
+    <div class="error-message" id="errorMessage"></div>
+    <div class="success-message" id="successMessage"></div>
+
+    <!-- FEEDBACK FORM -->
+    <div id="feedbackForm" style="display: none;">
+      <!-- SCREENCV BRANDING -->
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+        <img src="/screencv_logo.jpeg" alt="ScreenCV Logo" style="width: 48px; height: 48px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); object-fit: cover; flex-shrink: 0;">
+        <div>
+          <div style="font-size: 20px; font-weight: 800; color: #111827;">ScreenCV</div>
+          <div style="font-size: 11px; font-weight: 600; color: #9ca3af;">Resume Matcher</div>
+        </div>
+      </div>
+
+      <h1>Review Complete ✅</h1>
+      <p class="subtitle">Did you get the email? Have you reviewed your results?</p>
+
+      <!-- HIDDEN TOKEN -->
+      <input type="hidden" id="feedbackToken" value="">
+
+      <!-- SEPARATOR -->
+      <div style="border-top: 2px solid #e5e7eb; margin: 28px 0;"></div>
+
+      <!-- STAR RATING SECTION -->
+      <div style="margin-bottom: 32px;">
+        <h2 style="font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 8px;">Help us improve!</h2>
+        <p style="color: #6b7280; font-size: 14px; margin-bottom: 16px;">Rate this analysis. (Optional)</p>
+        
+        <label style="display: block; margin-bottom: 12px; font-weight: 600; font-size: 14px;">How helpful was this analysis?</label>
+        <div class="star-rating" id="starRating"></div>
+        <p class="rating-text" id="ratingText" style="margin-top: 12px; color: #6b7280; font-size: 13px;">No rating yet</p>
+      </div>
+
+      <!-- OPTIONAL REMARKS -->
+      <label style="display: block; margin-top: 28px; margin-bottom: 10px; font-weight: 600; font-size: 14px;">
+        Additional Comments (Optional)
+      </label>
+      <textarea
+        id="feedbackRemarks"
+        placeholder="What did you like? What could improve? Any features you'd suggest?"
+        maxlength="500"
+        onkeyup="updateCharCount()"
+      ></textarea>
+      <p class="char-count"><span id="charCount">0</span>/500 characters</p>
+
+      <!-- BUTTONS -->
+      <div class="button-group">
+        <button class="btn-primary" onclick="submitPublicFeedback()">
+          Submit Feedback
+        </button>
+        <button class="btn-secondary" onclick="skipFeedback()">
+          Skip
+        </button>
+      </div>
+    </div>
+
+    <!-- INVALID TOKEN -->
+    <div id="invalidToken" class="invalid-token">
+      <h2>❌ Invalid Link</h2>
+      <p>This feedback link has expired or is invalid.</p>
+      <p style="margin-top: 16px;">If you recently submitted an analysis, check your email for a fresh link.</p>
+    </div>
+  </div>
+
+  <script>
+    let selectedRating = 0;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    // ✅ VALIDATE TOKEN
+    async function validateToken() {
+      if (!token) {
+        showInvalidToken();
+        return false;
+      }
+
+      try {
+        const response = await fetch('/api/candidate/validate-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedbackToken: token })
+        });
+
+        const data = await response.json();
+
+        if (!data.valid) {
+          showInvalidToken();
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        showInvalidToken();
+        return false;
+      }
+    }
+
+    function showInvalidToken() {
+      document.getElementById('feedbackForm').style.display = 'none';
+      document.getElementById('invalidToken').style.display = 'block';
+    }
+
+    function showFeedbackForm() {
+      document.getElementById('feedbackForm').style.display = 'block';
+      document.getElementById('invalidToken').style.display = 'none';
+      document.getElementById('feedbackToken').value = token;
+    }
+
+    // ✅ INITIALIZE STAR RATING (5 STARS WITH HALF-STAR SUPPORT VIA HALF-CLICK)
+    function initStarRating() {
+      const starRatingEl = document.getElementById('starRating');
+      starRatingEl.innerHTML = '';
+
+      for (let i = 1; i <= 5; i++) {
+        const starContainer = document.createElement('span');
+        starContainer.style.position = 'relative';
+        starContainer.style.display = 'inline-block';
+        starContainer.dataset.starIndex = i;
+
+        const star = document.createElement('span');
+        star.className = 'star';
+        star.innerHTML = '★';
+        star.dataset.value = i;
+        star.style.cursor = 'pointer';
+
+        // Detect half-click vs full-click
+        star.onclick = (e) => {
+          const rect = star.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          const isLeftHalf = clickX < rect.width / 2;
+          
+          // Left half = add 0.5, Right half = full star
+          selectedRating = isLeftHalf ? i - 0.5 : i;
+          updateStars(selectedRating);
+          console.log(`[Star] Clicked star ${i}, position: ${isLeftHalf ? 'left (0.5)' : 'right (full)'}, Rating: ${selectedRating}`);
+        };
+
+        star.onmouseover = (e) => {
+          const rect = star.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const isLeftHalf = mouseX < rect.width / 2;
+          const previewRating = isLeftHalf ? i - 0.5 : i;
+          updateStarPreview(previewRating);
+        };
+
+        starContainer.appendChild(star);
+        starRatingEl.appendChild(starContainer);
+      }
+
+      starRatingEl.onmouseout = () => {
+        updateStars(selectedRating);
+      };
+    }
+
+    function updateStarPreview(rating) {
+      updateStars(rating);
+    }
+
+    function updateStars(rating) {
+      const stars = document.querySelectorAll('.star');
+      stars.forEach((star, idx) => {
+        const starNumber = idx + 1;
+        
+        // Determine if star should be full, half, or empty
+        if (rating >= starNumber) {
+          // Full star
+          star.classList.add('active');
+          star.style.opacity = '1';
+        } else if (rating > starNumber - 1 && rating < starNumber) {
+          // Half star
+          star.classList.add('active');
+          star.style.opacity = '0.5';
+        } else {
+          // Empty star
+          star.classList.remove('active');
+          star.style.opacity = '0.3';
+        }
+      });
+
+      if (selectedRating > 0) {
+        const ratingDisplay = selectedRating % 1 === 0 ? `${Math.floor(selectedRating)}.0` : `${selectedRating}`;
+        document.getElementById('ratingText').textContent = `${ratingDisplay} stars - Thank you!`;
+      } else {
+        document.getElementById('ratingText').textContent = 'No rating yet';
+      }
+    }
+
+    function updateCharCount() {
+      const textarea = document.getElementById('feedbackRemarks');
+      document.getElementById('charCount').textContent = textarea.value.length;
+    }
+
+    function showError(message) {
+      const errorEl = document.getElementById('errorMessage');
+      errorEl.textContent = message;
+      errorEl.classList.add('active');
+      setTimeout(() => errorEl.classList.remove('active'), 5000);
+    }
+
+    function showSuccess(message) {
+      const successEl = document.getElementById('successMessage');
+      successEl.textContent = message;
+      successEl.classList.add('active');
+    }
+
+    // ✅ SUBMIT FEEDBACK
+    async function submitPublicFeedback() {
+      const remarks = document.getElementById('feedbackRemarks').value;
+
+      // Allow submission with or without rating/remarks
+      try {
+        const response = await fetch('/api/candidate/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feedbackToken: document.getElementById('feedbackToken').value,
+            rating: selectedRating || null,
+            remarks: remarks || null
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showSuccess('Thank you! Your feedback has been recorded. 🙏');
+          // Reset form and go back to screen 1 after 1.5 seconds
+          setTimeout(() => {
+            location.reload(); // Reload to show screen 1 again
+          }, 1500);
+        } else {
+          showError(data.error || 'Failed to submit feedback');
+        }
+      } catch (error) {
+        console.error('Submission error:', error);
+        showError('Error submitting feedback. Please try again.');
+      }
+    }
+
+    function skipFeedback() {
+      window.location.href = '/';
+    }
+
+    // ✅ INITIALIZE ON PAGE LOAD
+    window.addEventListener('load', async () => {
+      const isValid = await validateToken();
+      if (isValid) {
+        showFeedbackForm();
+        initStarRating();
+      }
+    });
+  </script>
+</body>
+</html>

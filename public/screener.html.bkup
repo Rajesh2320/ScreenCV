@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScreenCV - AI Resume Analysis</title>
+    
+    <!-- Razorpay Script -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            display: block;
+        }
+
+        .app-name {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            line-height: 1.3;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.95;
+            margin: 0;
+            font-weight: 500;
+        }
+
+        .maintenance-notice {
+            background: #fff3cd;
+            color: #856404;
+            padding: 12px 20px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 15px;
+            border-radius: 6px;
+        }
+
+        .content {
+            padding: 40px 30px;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .step-indicator::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #e0e0e0;
+            z-index: 0;
+        }
+
+        .step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-number {
+            width: 40px;
+            height: 40px;
+            background: #e0e0e0;
+            color: #999;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 10px;
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .step.active .step-number {
+            background: #667eea;
+            color: white;
+        }
+
+        .step.completed .step-number {
+            background: #10b981;
+            color: white;
+        }
+
+        .step-label {
+            font-size: 12px;
+            color: #999;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .step.active .step-label {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .step-content {
+            display: none;
+        }
+
+        .step-content.show {
+            display: block;
+        }
+
+        .step-content h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-group .helper-text {
+            font-size: 12px;
+            color: #999;
+            font-weight: 400;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-next {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-next:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-next:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-back {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-back:hover {
+            background: #d0d0d0;
+        }
+
+        .error {
+            color: #e74c3c;
+            font-size: 14px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #fadbd8;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f0f0f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .payment-box {
+            background: #f0f4f8;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .payment-box p {
+            color: #555;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .price-tag {
+            font-size: 28px;
+            color: #667eea;
+            font-weight: 700;
+            margin: 15px 0;
+        }
+
+        .benefits-list {
+            text-align: left;
+            margin: 20px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .benefits-list p {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #555;
+        }
+
+        .benefits-list p:before {
+            content: "✅ ";
+            color: #10b981;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .btn-pay {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+
+        .btn-pay:hover:not(:disabled) {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-pay:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #testModeMessage {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fffacd;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            display: none;
+            border-left: 4px solid #ffc107;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                border-radius: 0;
+            }
+
+            .header {
+                padding: 30px 20px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <svg class="logo" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                <!-- Target board bullseye -->
+                <!-- Outer circle (red) -->
+                <circle cx="100" cy="100" r="95" fill="#ff6b35" opacity="0.9"/>
+                <!-- Middle circle (orange) -->
+                <circle cx="100" cy="100" r="70" fill="#ff8c42" opacity="0.95"/>
+                <!-- Inner circle (yellow) -->
+                <circle cx="100" cy="100" r="45" fill="#ffd93d" opacity="1"/>
+                <!-- Center circle (white) -->
+                <circle cx="100" cy="100" r="20" fill="white"/>
+                
+                <!-- Red Cross inside center -->
+                <g transform="translate(100, 100)">
+                    <line x1="-8" y1="-8" x2="8" y2="8" stroke="#dc3545" stroke-width="3" stroke-linecap="round"/>
+                    <line x1="8" y1="-8" x2="-8" y2="8" stroke="#dc3545" stroke-width="3" stroke-linecap="round"/>
+                </g>
+                
+                <!-- Crosshair lines -->
+                <line x1="100" y1="20" x2="100" y2="50" stroke="white" stroke-width="2" opacity="0.6"/>
+                <line x1="100" y1="150" x2="100" y2="180" stroke="white" stroke-width="2" opacity="0.6"/>
+                <line x1="20" y1="100" x2="50" y2="100" stroke="white" stroke-width="2" opacity="0.6"/>
+                <line x1="150" y1="100" x2="180" y2="100" stroke="white" stroke-width="2" opacity="0.6"/>
+            </svg>
+            <p class="app-name">SCREENCV - TARGET MATCH</p>
+            <h1>Your Resume Vs The Job: AI-Powered Match Analysis</h1>
+            <p>Know your fit. Get interview-ready. Land the role.</p>
+            <div id="maintenanceNotice"></div>
+        </div>
+
+        <!-- Content -->
+        <div class="content" id="mainContent">
+            <!-- Step Indicator (3 Steps) -->
+            <div class="step-indicator">
+                <div class="step active" id="step1Indicator">
+                    <div class="step-number">1</div>
+                    <div class="step-label">Details</div>
+                </div>
+                <div class="step" id="step2Indicator">
+                    <div class="step-number">2</div>
+                    <div class="step-label">Resume</div>
+                </div>
+                <div class="step" id="step3Indicator">
+                    <div class="step-number">3</div>
+                    <div class="step-label">Payment</div>
+                </div>
+            </div>
+
+            <!-- STEP 1: Job Details -->
+            <div id="step1" class="step-content show">
+                <h2>Step 1: Job Details</h2>
+                <div class="form-group">
+                    <label>Your Email</label>
+                    <span class="helper-text">💡 We'll send your detailed analysis report and feedback link to this email</span>
+                    <input type="email" id="candidateEmail" placeholder="your@email.com">
+                </div>
+                <div class="form-group">
+                    <label>Job Title</label>
+                    <input type="text" id="jobTitle" placeholder="e.g., Senior React Developer">
+                </div>
+                <div class="form-group">
+                    <label>Job Description</label>
+                    <span class="helper-text">📋 Please paste the ENTIRE job listing including: Location, Shift, Timings, Job Description, Skills Required, etc.</span>
+                    <textarea id="jobDescription" placeholder="Paste the complete job description here..."></textarea>
+                </div>
+                <div class="error" id="step1Error"></div>
+                <div class="button-group">
+                    <button class="btn-next" onclick="nextStep(1)">Continue →</button>
+                </div>
+            </div>
+
+            <!-- STEP 2: Upload Resume -->
+            <div id="step2" class="step-content">
+                <h2>Step 2: Upload Resume</h2>
+                <div class="form-group">
+                    <label>Resume File (PDF, DOC, DOCX, TXT)</label>
+                    <span class="helper-text">📄 Upload your resume. We support PDF, DOC, DOCX, and TXT formats.</span>
+                    <input type="file" id="resumeFile" accept=".pdf,.doc,.docx,.txt">
+                </div>
+                <div class="error" id="step2Error"></div>
+                <div class="button-group">
+                    <button class="btn-back" onclick="prevStep(2)">← Back</button>
+                    <button class="btn-next" onclick="nextStep(2)">Continue →</button>
+                </div>
+            </div>
+
+            <!-- STEP 3: Razorpay Payment -->
+            <div id="step3" class="step-content">
+                <h2>Step 3: Complete Payment</h2>
+                
+                <p style="text-align: center; margin: 20px 0; font-size: 16px; color: #667eea;">
+                    Get your AI-powered resume analysis
+                </p>
+                
+                <div class="price-tag">₹99</div>
+
+                <div class="benefits-list">
+                    <p>Instant analysis</p>
+                    <p>Interview tips & recommendations</p>
+                    <p>Detailed report with downloadable PDF</p>
+                    <p>Secure payment via Razorpay</p>
+                </div>
+
+                <!-- Loading state -->
+                <div id="paymentLoading" class="loading">
+                    <span class="spinner"></span>
+                    <span>Creating payment order...</span>
+                </div>
+
+                <!-- Payment button -->
+                <div id="paymentContainer">
+                    <button id="razorpayButton" class="btn-pay" onclick="handleRazorpayPayment()">
+                        💳 Pay ₹99 & Get Analysis
+                    </button>
+                </div>
+
+                <!-- Error message -->
+                <div id="paymentError" class="error"></div>
+
+                <!-- Test mode message (dev only) -->
+                <div id="testModeMessage">
+                    <strong>🧪 Test Mode:</strong> Use card 4111 1111 1111 1111, CVV: 123, OTP: 123456
+                </div>
+
+                <div class="button-group">
+                    <button class="btn-back" onclick="prevStep(3)">← Back</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const API_BASE = "http://localhost:3000/api";
+
+        // ===== INIT =====
+        async function init() {
+            console.log("[Init] Initializing screener...");
+            try {
+                await checkToolStatus();
+            } catch (error) {
+                console.error("[Init] Error checking tool status:", error);
+            }
+            showTestModeIfDev();
+            showStep(1);
+            console.log("[Init] ✅ Ready!");
+        }
+
+        // ===== CHECK TOOL STATUS =====
+        async function checkToolStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/tool-status`);
+                const data = await response.json();
+                
+                console.log("[ToolStatus] Response:", data);
+
+                if (data && data.maintenanceMode && data.maintenanceMode === true) {
+                    const notice = document.getElementById("maintenanceNotice");
+                    notice.innerHTML = `<div class="maintenance-notice">⚠️ ${data.maintenanceMessage || "ScreenCV is under maintenance"}</div>`;
+                    
+                    // 🔴 NEW: DISABLE THE FORM
+                    const mainContent = document.getElementById("mainContent");
+                    mainContent.style.opacity = "0.5";
+                    mainContent.style.pointerEvents = "none";
+                    
+                    // Disable all inputs and buttons
+                    const inputs = mainContent.querySelectorAll("input, textarea, button");
+                    inputs.forEach(el => el.disabled = true);
+                    
+                    console.log("[ToolStatus] Form disabled - maintenance mode ON");
+                }
+            } catch (error) {
+                console.error("[ToolStatus] Error:", error);
+            }
+        }
+
+        // ===== SHOW STEP =====
+        function showStep(stepNum) {
+            console.log("[Step] Showing step", stepNum);
+
+            // Hide all steps
+            const steps = document.querySelectorAll(".step-content");
+            steps.forEach(el => el.classList.remove("show"));
+
+            // Show active step
+            const activeStep = document.getElementById(`step${stepNum}`);
+            if (activeStep) {
+                activeStep.classList.add("show");
+            }
+
+            // Update indicators
+            const indicators = document.querySelectorAll(".step");
+            indicators.forEach((el, index) => {
+                const stepIndex = index + 1;
+                el.classList.remove("active", "completed");
+                if (stepIndex === stepNum) {
+                    el.classList.add("active");
+                } else if (stepIndex < stepNum) {
+                    el.classList.add("completed");
+                }
+            });
+
+            currentStep = stepNum;
+            window.scrollTo(0, 0);
+        }
+
+        function nextStep(from) {
+            if (from === 1 && !validateStep1()) return;
+            if (from === 2 && !validateStep2()) return;
+            
+            showStep(from + 1);
+        }
+
+        function prevStep(from) {
+            showStep(from - 1);
+        }
+
+        // ===== VALIDATION =====
+        function validateStep1() {
+            const email = document.getElementById("candidateEmail").value.trim();
+            const jobTitle = document.getElementById("jobTitle").value.trim();
+            const jobDesc = document.getElementById("jobDescription").value.trim();
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+            let error = "";
+            if (!email) error = "Please enter your email";
+            else if (!emailRegex.test(email)) error = "Please enter a valid email";
+            else if (!jobTitle) error = "Please enter the job title";
+            else if (!jobDesc) error = "Please paste the job description";
+
+            const errorEl = document.getElementById("step1Error");
+            if (error) {
+                errorEl.textContent = error;
+                errorEl.classList.add("show");
+                return false;
+            } else {
+                errorEl.classList.remove("show");
+                return true;
+            }
+        }
+
+        function validateStep2() {
+            const file = document.getElementById("resumeFile").files[0];
+            const errorEl = document.getElementById("step2Error");
+
+            if (!file) {
+                errorEl.textContent = "Please select a resume file";
+                errorEl.classList.add("show");
+                return false;
+            }
+
+            const validTypes = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
+            if (!validTypes.includes(file.type)) {
+                errorEl.textContent = "Please upload a PDF, DOC, DOCX, or TXT file";
+                errorEl.classList.add("show");
+                return false;
+            }
+
+            errorEl.classList.remove("show");
+            return true;
+        }
+
+        // ===== RAZORPAY PAYMENT =====
+        function showTestModeIfDev() {
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                document.getElementById("testModeMessage").style.display = 'block';
+            }
+        }
+
+        async function handleRazorpayPayment() {
+            try {
+                const jobTitle = document.getElementById("jobTitle").value.trim();
+                const jobDescription = document.getElementById("jobDescription").value.trim();
+                const candidateEmail = document.getElementById("candidateEmail").value.trim();
+                const resumeFile = document.getElementById("resumeFile").files[0];
+
+                if (!jobTitle || !jobDescription || !candidateEmail || !resumeFile) {
+                    showPaymentError('Please complete Steps 1 & 2 first');
+                    return;
+                }
+
+                // Show loading
+                document.getElementById("paymentLoading").classList.add("show");
+                document.getElementById("razorpayButton").disabled = true;
+
+                // Create FormData with file
+                const formData = new FormData();
+                formData.append("candidateEmail", candidateEmail);
+                formData.append("jobTitle", jobTitle);
+                formData.append("jobDescription", jobDescription);
+                formData.append("resume", resumeFile);
+                formData.append("feedbackToken", generateFeedbackToken());
+
+                // Create Razorpay order (with file extraction server-side)
+                console.log('[Payment] Creating Razorpay order with file extraction...');
+                
+                const orderResponse = await fetch('/api/candidate/razorpay-order', {
+                    method: 'POST',
+                    body: formData,  // ✅ Send FormData with file, not JSON
+                });
+
+                if (!orderResponse.ok) {
+                    const errorData = await orderResponse.json();
+                    throw new Error(errorData.error || 'Failed to create payment order');
+                }
+
+                const orderData = await orderResponse.json();
+
+                if (!orderData.success) {
+                    throw new Error(orderData.error || 'Failed to create order');
+                }
+
+                console.log('[Payment] ✅ Order created:', orderData.order.id);
+
+                // Open Razorpay checkout
+                const razorpayOptions = {
+                    key: orderData.razorpayKey,
+                    amount: orderData.order.amount,
+                    currency: 'INR',
+                    order_id: orderData.order.id,
+                    name: 'ScreenCV - TARGET MATCH',
+                    description: `Resume Analysis for ${jobTitle}`,
+                    image: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="95" fill="%23ff6b35" opacity="0.9"/><circle cx="100" cy="100" r="70" fill="%23ff8c42" opacity="0.95"/><circle cx="100" cy="100" r="45" fill="%23ffd93d" opacity="1"/><circle cx="100" cy="100" r="20" fill="white"/><g transform="translate(100, 100)"><line x1="-8" y1="-8" x2="8" y2="8" stroke="%23dc3545" stroke-width="3" stroke-linecap="round"/><line x1="8" y1="-8" x2="-8" y2="8" stroke="%23dc3545" stroke-width="3" stroke-linecap="round"/></g></svg>',
+                    handler: function(response) {
+                        console.log('[Payment] ✅ Payment successful!');
+                        verifyPayment(
+                            response.razorpay_payment_id,
+                            response.razorpay_order_id,
+                            response.razorpay_signature,
+                            orderData.submissionId
+                        );
+                    },
+                    prefill: {
+                        email: candidateEmail,
+                    },
+                    modal: {
+                        ondismiss: function() {
+                            console.log('[Payment] Payment dismissed');
+                            document.getElementById("paymentLoading").classList.remove("show");
+                            document.getElementById("razorpayButton").disabled = false;
+                            showPaymentError('Payment cancelled. Please try again.');
+                        }
+                    },
+                    theme: {
+                        color: '#667eea',
+                    },
+                };
+
+                const rzp = new Razorpay(razorpayOptions);
+                rzp.open();
+
+                document.getElementById("paymentLoading").classList.remove("show");
+
+            } catch (error) {
+                console.error('[Payment] Error:', error);
+                showPaymentError(error.message || 'Failed to process payment');
+                document.getElementById("paymentLoading").classList.remove("show");
+                document.getElementById("razorpayButton").disabled = false;
+            }
+        }
+
+        async function verifyPayment(paymentId, orderId, signature, submissionId) {
+            try {
+                console.log('[Verify] Verifying payment...');
+                
+                document.getElementById("paymentLoading").classList.add("show");
+                document.getElementById("razorpayButton").disabled = true;
+
+                const verifyResponse = await fetch('/api/candidate/razorpay-verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        paymentId: paymentId,
+                        orderId: orderId,
+                        signature: signature,
+                        submissionId: submissionId,
+                    }),
+                });
+
+                if (!verifyResponse.ok) {
+                    throw new Error('Payment verification failed');
+                }
+
+                const verifyData = await verifyResponse.json();
+
+                if (!verifyData.success || verifyData.status !== 'CAPTURED') {
+                    throw new Error(verifyData.message || 'Payment not verified');
+                }
+
+                console.log('[Verify] ✅ Payment verified successfully!');
+
+                // Store submission ID
+                sessionStorage.setItem('submissionId', submissionId);
+
+                // Redirect to success page
+                setTimeout(() => {
+                    window.location.href = '/success.html?submissionId=' + submissionId;
+                }, 1500);
+
+            } catch (error) {
+                console.error('[Verify] Error:', error);
+                showPaymentError(error.message || 'Payment verification failed');
+                document.getElementById("paymentLoading").classList.remove("show");
+                document.getElementById("razorpayButton").disabled = false;
+            }
+        }
+
+        function showPaymentError(message) {
+            const errorDiv = document.getElementById("paymentError");
+            errorDiv.textContent = '❌ ' + message;
+            errorDiv.classList.add("show");
+
+            setTimeout(() => {
+                errorDiv.classList.remove("show");
+            }, 5000);
+        }
+
+        function generateFeedbackToken() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let token = '';
+            for (let i = 0; i < 32; i++) {
+                token += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return token;
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "buildCommand": "npm install",
+  "env": {},
+  "functions": {
+    "api/candidate/*.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/candidate/(.*)",
+      "dest": "/api/candidate/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    }
+  ]
+}

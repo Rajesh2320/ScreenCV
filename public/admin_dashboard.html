@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScreenCV Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .login-container h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* ⭐ Password field wrapper with toggle button */
+        .password-field-wrapper {
+            display: flex;
+            align-items: center;
+            position: relative;
+        }
+
+        .password-field-wrapper input {
+            flex: 1;
+            padding-right: 40px;  /* Space for the eye icon button */
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 8px;
+            transition: opacity 0.2s;
+            color: #666;
+        }
+
+        .password-toggle:hover {
+            opacity: 0.7;
+        }
+
+        .password-toggle:active {
+            opacity: 0.5;
+        }
+
+        .login-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .error-msg {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 5px;
+            display: none;
+            font-size: 14px;
+        }
+
+        /* Dashboard Styles */
+        .dashboard {
+            display: none;
+            width: 100%;
+            min-height: 100vh;
+            background: #f5f7fa;
+        }
+
+        .dashboard-header {
+            background: white;
+            padding: 20px 40px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dashboard-header h1 {
+            color: #333;
+            font-size: 28px;
+        }
+
+        .logout-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .dashboard-content {
+            padding: 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            color: #999;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .stat-card .value {
+            color: #333;
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 15px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #999;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        table th {
+            background: #f5f7fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            border-bottom: 2px solid #ddd;
+        }
+
+        table td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        table tr:hover {
+            background: #f9f9f9;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-captured {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .tool-status {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 60px;
+            height: 30px;
+            background: #ccc;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.active {
+            background: #4caf50;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 26px;
+            height: 26px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: left 0.3s;
+        }
+
+        .toggle-switch.active::after {
+            left: 32px;
+        }
+
+        .empty-message {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Form -->
+    <div class="login-container" id="loginForm">
+        <h1>🎯 ScreenCV Admin</h1>
+        <div class="error-msg" id="errorMsg"></div>
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" value="joraba73@gmail.com" placeholder="admin@example.com">
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <div class="password-field-wrapper">
+                <input type="password" id="password" value="Adm1n$2325$cynraj" placeholder="Password">
+                <button type="button" class="password-toggle" id="passwordToggle" onclick="togglePasswordVisibility()" title="Show/Hide password">
+                    👁️
+                </button>
+            </div>
+        </div>
+        <button class="login-btn" onclick="handleLogin()">Login</button>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="dashboard" id="dashboard">
+        <div class="dashboard-header">
+            <h1>📊 ScreenCV Admin Dashboard</h1>
+            <button class="logout-btn" onclick="handleLogout()">Logout</button>
+        </div>
+
+        <div class="dashboard-content">
+            <!-- Stats Cards -->
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <h3>Total Resumes</h3>
+                    <div class="value" id="totalSubmissions">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Analyzed</h3>
+                    <div class="value" id="analyzedCount">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Today's</h3>
+                    <div class="value" id="todayCount">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>This Month</h3>
+                    <div class="value" id="monthCount">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>IBE 💰</h3>
+                    <div class="value" id="ibeAmount">-</div>
+                    <p style="font-size: 11px; color: #999; margin-top: 8px;">(Income Before Expenses)</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Claude Cost 🤖</h3>
+                    <div class="value" id="claudeCost">-</div>
+                    <p style="font-size: 11px; color: #999; margin-top: 8px;">(Extraction + Analysis)</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Razorpay Fee 💳</h3>
+                    <div class="value" id="razorpayCost">-</div>
+                    <p style="font-size: 11px; color: #999; margin-top: 8px;">(2% + ₹3/txn)</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Net Profit 📈</h3>
+                    <div class="value" id="netProfit">-</div>
+                    <p style="font-size: 11px; color: #999; margin-top: 8px;">(IBE - All Costs)</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Emails Sent 📧</h3>
+                    <div class="value" id="emailsSent">-</div>
+                </div>
+            </div>
+
+            <!-- Tool Status -->
+            <div class="tool-status">
+                <div>
+                    <h3>Tool Status</h3>
+                    <p id="toolStatusText">Loading...</p>
+                </div>
+                <div class="toggle-switch" id="toolToggle" onclick="toggleToolStatus()"></div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('statistics')">📈 Statistics</button>
+                <button class="tab-btn" onclick="switchTab('payments')">💳 Payments</button>
+                <button class="tab-btn" onclick="switchTab('analytics')">📊 Analytics</button>
+                <button class="tab-btn" id="incidentsBtn" onclick="switchTab('incidents')">⚠️ Incidents</button>
+            </div>
+
+            <!-- Statistics Tab -->
+            <div class="tab-content active" id="tab-statistics">
+                <h2>Summary Statistics</h2>
+                <p>Use the stat cards above to view key metrics.</p>
+            </div>
+
+            <!-- Payments Tab -->
+            <div class="tab-content" id="tab-payments">
+                <h2>Payment Orders</h2>
+                <div style="margin-bottom: 20px;">
+                    <input 
+                        type="text" 
+                        id="paymentSearch" 
+                        placeholder="🔍 Search by Email, Name, Order ID, or Payment ID..." 
+                        style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;"
+                    >
+                </div>
+                <div id="paymentsContainer" class="loading">Loading payment orders...</div>
+            </div>
+
+            <!-- Analytics Tab -->
+            <div class="tab-content" id="tab-analytics">
+                <h2>Daily Analytics</h2>
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                    💡 <strong>IBE:</strong> Customer payment (₹99/submission) | <strong>Claude Cost:</strong> AI processing (actual from API) | <strong>Razorpay:</strong> 2% + ₹3/transaction | <strong>Net Profit:</strong> IBE - All Costs
+                </p>
+                <div id="analyticsContainer" class="loading">Loading analytics...</div>
+            </div>
+
+            <!-- Payment Incidents Tab -->
+            <div class="tab-content" id="tab-incidents">
+                <h2>⚠️ Payment Failures & Incidents</h2>
+                <div style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border-left: 4px solid #ff9800; border-radius: 3px;">
+                    <strong>Incident Summary:</strong> 
+                    <span id="incidentSummary">Loading...</span>
+                </div>
+                <!-- ⭐ NEW: Search for incidents -->
+                <div style="margin-bottom: 20px;">
+                    <input 
+                        type="text" 
+                        id="incidentSearch" 
+                        placeholder="🔍 Search by Email, Candidate Name, Order ID, or Incident Type..." 
+                        style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;"
+                    >
+                </div>
+                <div id="incidentsContainer" class="loading">Loading incidents...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let adminEmail = '';
+        let adminPassword = '';
+
+        // ⭐ Toggle password visibility
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            const passwordToggle = document.getElementById('passwordToggle');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';  // Show password
+                passwordToggle.textContent = '👁️‍🗨️';  // Closed eye with slash
+            } else {
+                passwordInput.type = 'password';  // Hide password
+                passwordToggle.textContent = '👁️';  // Open eye
+            }
+        }
+
+        // ==================== LOGIN ====================
+        async function handleLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('errorMsg');
+
+            if (!email || !password) {
+                errorMsg.textContent = '❌ Email and password required';
+                errorMsg.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+                console.log('[Dashboard] Login response:', data);
+
+                if (data.success) {
+                    adminEmail = email;
+                    adminPassword = password;
+                    errorMsg.style.display = 'none';
+                    showDashboard();
+                    loadStats();
+                    loadPaymentOrders();
+                    loadAnalytics();
+                    loadIncidents();
+                    loadToolStatus();
+                } else {
+                    errorMsg.textContent = '❌ ' + (data.message || 'Login failed');
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                console.error('[Dashboard] Login error:', err);
+                errorMsg.textContent = '❌ ' + err.message;
+                errorMsg.style.display = 'block';
+            }
+        }
+
+        function showDashboard() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'flex';
+        }
+
+        function handleLogout() {
+            adminEmail = '';
+            adminPassword = '';
+            document.getElementById('loginForm').style.display = 'flex';
+            document.getElementById('dashboard').style.display = 'none';
+        }
+
+        // ==================== API CALLS ====================
+        async function apiCall(endpoint, method = 'GET') {
+            console.log('[Dashboard] Calling:', method, endpoint);
+            const response = await fetch(endpoint, {
+                method: method,
+                headers: {
+                    'x-admin-email': adminEmail,
+                    'x-admin-password': adminPassword
+                }
+            });
+            const data = await response.json();
+            console.log('[Dashboard] Response:', endpoint, data);
+            return data;
+        }
+
+        // ==================== STATS ====================
+        async function loadStats() {
+            try {
+                const data = await apiCall('/api/admin/analytics/stats');
+                if (data.success) {
+                    document.getElementById('totalSubmissions').textContent = data.totalSubmissions;
+                    document.getElementById('analyzedCount').textContent = data.analyzedCount;
+                    document.getElementById('todayCount').textContent = data.todayCount;
+                    document.getElementById('monthCount').textContent = data.monthCount;
+                    
+                    // Financial breakdown
+                    document.getElementById('ibeAmount').textContent = '₹' + data.ibeAmount;
+                    document.getElementById('claudeCost').textContent = '₹' + data.claudeCost.toFixed(2);
+                    document.getElementById('razorpayCost').textContent = '₹' + data.razorpayCost.toFixed(2);
+                    document.getElementById('netProfit').textContent = '₹' + data.netProfit.toFixed(2);
+                    document.getElementById('emailsSent').textContent = data.emailsSent;
+                    
+                    console.log('[Dashboard] Financial breakdown:', {
+                        IBE: data.ibeAmount,
+                        ClaudeCost: data.claudeCost,
+                        RazorpayCost: data.razorpayCost,
+                        NetProfit: data.netProfit
+                    });
+                }
+            } catch (err) {
+                console.error('[Dashboard] Stats error:', err);
+            }
+        }
+
+        let allPayments = [];  // ✅ Store all payments for searching
+
+        // ==================== PAYMENT ORDERS ====================
+        async function loadPaymentOrders() {
+            try {
+                console.log('[Dashboard] Loading payment orders...');
+                const data = await apiCall('/api/admin/payment-orders');
+                
+                console.log('[Dashboard] Payment orders response:', data);
+                
+                const container = document.getElementById('paymentsContainer');
+                
+                if (!data.success) {
+                    container.innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+                    return;
+                }
+                
+                if (!data.payments || data.payments.length === 0) {
+                    container.innerHTML = '<div class="empty-message">No payment orders found</div>';
+                    return;
+                }
+
+                // ✅ Store all payments for searching
+                allPayments = data.payments;
+
+                // Render all payments initially
+                renderPaymentTable(allPayments);
+                
+                // ✅ Add search event listener
+                const searchInput = document.getElementById('paymentSearch');
+                if (searchInput) {
+                    searchInput.addEventListener('input', function() {
+                        const searchTerm = this.value.toLowerCase();
+                        if (!searchTerm) {
+                            // No search term, show all
+                            renderPaymentTable(allPayments);
+                        } else {
+                            // Filter payments
+                            const filtered = allPayments.filter(payment => {
+                                const email = (payment.email || '').toLowerCase();
+                                const name = (payment.name || '').toLowerCase();
+                                const orderId = (payment.razorpayOrderId || '').toLowerCase();
+                                const paymentId = (payment.razorpayPaymentId || '').toLowerCase();
+                                
+                                return email.includes(searchTerm) || 
+                                       name.includes(searchTerm) || 
+                                       orderId.includes(searchTerm) || 
+                                       paymentId.includes(searchTerm);
+                            });
+                            renderPaymentTable(filtered);
+                        }
+                    });
+                }
+
+                console.log('[Dashboard] ✅ Payment orders loaded and searchable');
+            } catch (err) {
+                console.error('[Dashboard] Payment orders error:', err);
+                document.getElementById('paymentsContainer').innerHTML = 
+                    '<div class="error">❌ Error loading payment orders: ' + err.message + '</div>';
+            }
+        }
+
+        function renderPaymentTable(payments) {
+            const container = document.getElementById('paymentsContainer');
+            
+            if (!payments || payments.length === 0) {
+                container.innerHTML = '<div class="empty-message">No payment orders found</div>';
+                return;
+            }
+
+            // Build table
+            let html = `
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                    📊 Showing ${payments.length} payment${payments.length !== 1 ? 's' : ''}
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Email</th>
+                            <th>Name</th>
+                            <th>Job Title</th>
+                            <th>Amount</th>
+                            <th>Order ID</th>
+                            <th>Payment ID</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            payments.forEach(payment => {
+                const statusClass = 'status-' + (payment.status || 'pending').toLowerCase();
+                html += `
+                    <tr>
+                        <td>${payment.date}</td>
+                        <td>${payment.email}</td>
+                        <td>${payment.name}</td>
+                        <td>${payment.jobTitle}</td>
+                        <td>${payment.amount}</td>
+                        <td><code style="background: #f0f0f0; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-family: monospace;">${payment.razorpayOrderId}</code></td>
+                        <td><code style="background: #f0f0f0; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-family: monospace;">${payment.razorpayPaymentId}</code></td>
+                        <td><span class="status-badge ${statusClass}">${payment.status}</span></td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        // ==================== ANALYTICS ====================
+        async function loadAnalytics() {
+            try {
+                console.log('[Dashboard] Loading analytics...');
+                const data = await apiCall('/api/admin/daily-report');
+                
+                console.log('[Dashboard] Analytics response:', data);
+                
+                const container = document.getElementById('analyticsContainer');
+                
+                if (!data.success) {
+                    container.innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+                    return;
+                }
+                
+                if (!data.daily || data.daily.length === 0) {
+                    container.innerHTML = '<div class="empty-message">No analytics data available</div>';
+                    return;
+                }
+
+                // Build table
+                let html = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Submissions</th>
+                                <th>Analyzed</th>
+                                <th>IBE 💰</th>
+                                <th>Claude Cost 🤖</th>
+                                <th>Razorpay 💳</th>
+                                <th>Net Profit 📈</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                data.daily.forEach(row => {
+                    html += `
+                        <tr>
+                            <td>${row.date}</td>
+                            <td>${row.submissions}</td>
+                            <td>${row.analyzed}</td>
+                            <td>₹${row.ibe}</td>
+                            <td>₹${row.claudeCost}</td>
+                            <td>₹${row.razorpayCost}</td>
+                            <td><strong>₹${row.netProfit}</strong></td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                        </tbody>
+                    </table>
+                `;
+
+                container.innerHTML = html;
+                console.log('[Dashboard] ✅ Analytics rendered');
+            } catch (err) {
+                console.error('[Dashboard] Analytics error:', err);
+                document.getElementById('analyticsContainer').innerHTML = 
+                    '<div class="error">❌ Error loading analytics: ' + err.message + '</div>';
+            }
+        }
+
+        // ==================== PAYMENT INCIDENTS ====================
+        async function loadIncidents() {
+            try {
+                console.log('[Dashboard] Loading payment incidents...');
+                // ✅ status= (empty) bypasses default "unresolved" filter to get ALL incidents
+                // limit=500 to fetch up to 500 incidents for the dashboard
+                const data = await apiCall('/api/admin/payment-incidents?status=&limit=500');
+                
+                console.log('[Dashboard] Incidents response:', data);
+                
+                const container = document.getElementById('incidentsContainer');
+                
+                if (!data.success) {
+                    container.innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+                    document.getElementById('incidentSummary').innerHTML = 'Error loading incidents';
+                    return;
+                }
+
+                // Get incidents array and summary
+                const incidents = data.incidents || [];
+                const summary = data.summary || {};
+
+                if (incidents.length === 0) {
+                    document.getElementById('incidentSummary').innerHTML = '✅ No incidents found';
+                    container.innerHTML = '<div class="empty-message">All payments processed successfully!</div>';
+                    return;
+                }
+
+                // Update summary with safe defaults
+                const totalUnresolved = incidents.filter(i => i.status === 'unresolved').length;
+                const totalResolved = incidents.filter(i => i.status === 'resolved').length;
+                
+                document.getElementById('incidentSummary').innerHTML = `
+                    Total: ${incidents.length} | 
+                    🔴 Unresolved: ${totalUnresolved} | 
+                    ✅ Resolved: ${totalResolved}
+                `;
+
+                // Render the incidents table using the new function
+                renderIncidentsTable(incidents);
+                
+                // ⭐ Add search functionality for incidents
+                const searchInput = document.getElementById('incidentSearch');
+                if (searchInput) {
+                    searchInput.addEventListener('input', function() {
+                        const searchTerm = this.value.toLowerCase();
+                        if (!searchTerm) {
+                            // No search term, show all
+                            renderIncidentsTable(incidents);
+                        } else {
+                            // Filter incidents
+                            const filtered = incidents.filter(incident => {
+                                const email = (incident.email || '').toLowerCase();
+                                const name = (incident.candidate_name || '').toLowerCase();
+                                const orderId = (incident.razorpay_order_id || '').toLowerCase();
+                                const type = (incident.incident_type || '').toLowerCase();
+                                
+                                return email.includes(searchTerm) || 
+                                       name.includes(searchTerm) || 
+                                       orderId.includes(searchTerm) || 
+                                       type.includes(searchTerm);
+                            });
+                            renderIncidentsTable(filtered);
+                        }
+                    });
+                }
+                
+                console.log('[Dashboard] ✅ Incidents rendered and searchable');
+            } catch (err) {
+                console.error('[Dashboard] Incidents error:', err);
+                document.getElementById('incidentsContainer').innerHTML = 
+                    '<div class="error">❌ Error loading incidents: ' + err.message + '</div>';
+                document.getElementById('incidentSummary').innerHTML = 'Error: ' + err.message;
+            }
+        }
+        
+        // ⭐ Render incidents table (used for both initial load and search filtering)
+        function renderIncidentsTable(incidents) {
+            const container = document.getElementById('incidentsContainer');
+            
+            if (!incidents || incidents.length === 0) {
+                container.innerHTML = '<div class="empty-message">No incidents found</div>';
+                return;
+            }
+            
+            let html = `
+                <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                    📊 Showing ${incidents.length} incident${incidents.length !== 1 ? 's' : ''}
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Candidate Name</th>
+                            <th>Email</th>
+                            <th>Amount</th>
+                            <th>Order ID</th>
+                            <th>Payment ID</th>
+                            <th>Description</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            incidents.forEach(incident => {
+                const isUnresolved = incident.status === 'unresolved';
+                const statusClass = isUnresolved ? 'status-pending' : 'status-captured';
+                const createdDate = incident.created_at ? new Date(incident.created_at).toLocaleDateString() : 'N/A';
+                
+                html += `
+                    <tr>
+                        <td>${createdDate}</td>
+                        <td><span style="background: #ffebee; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">${incident.incident_type || 'UNKNOWN'}</span></td>
+                        <td><strong>${incident.candidate_name || 'Unknown'}</strong></td>
+                        <td>${incident.email || 'N/A'}</td>
+                        <td>₹${incident.amount || 'N/A'}</td>
+                        <td><code style="background: #f0f0f0; padding: 4px 8px; border-radius: 3px; font-size: 10px; word-break: break-all;">${incident.razorpay_order_id || 'N/A'}</code></td>
+                        <td><code style="background: #f0f0f0; padding: 4px 8px; border-radius: 3px; font-size: 10px; word-break: break-all;">${incident.razorpay_payment_id || 'N/A'}</code></td>
+                        <td style="max-width: 300px; word-break: break-word;">${incident.description || 'No details'}</td>
+                        <td><span class="status-badge ${statusClass}">${incident.status}</span></td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        // ==================== TOOL STATUS ====================
+        async function loadToolStatus() {
+            try {
+                const data = await apiCall('/api/admin/tool-status');
+                console.log('[Dashboard] Tool status data:', data);
+                
+                if (data.success) {
+                    // API returns tool_active as string ('true' or 'false'), not boolean
+                    const isActive = data.tool_active === 'true' || data.tool_active === true;
+                    const toggle = document.getElementById('toolToggle');
+                    const statusText = document.getElementById('toolStatusText');
+                    
+                    console.log('[Dashboard] Tool is active:', isActive);
+                    
+                    if (isActive) {
+                        toggle.classList.add('active');
+                        statusText.textContent = '✅ Tool is ACTIVE - Candidates can use ScreenCV';
+                    } else {
+                        toggle.classList.remove('active');
+                        statusText.textContent = '⏸️ Tool is in MAINTENANCE MODE - ' + (data.maintenance_message || 'Please try again later.');
+                    }
+                }
+            } catch (err) {
+                console.error('[Dashboard] Tool status error:', err);
+            }
+        }
+
+        async function toggleToolStatus() {
+            try {
+                console.log('[Dashboard] Toggling tool status with PUT...');
+                const data = await apiCall('/api/admin/tool-status/toggle', 'PUT');
+                console.log('[Dashboard] Toggle response:', data);
+                if (data.success) {
+                    loadToolStatus();
+                }
+            } catch (err) {
+                console.error('[Dashboard] Toggle error:', err);
+            }
+        }
+
+        // ==================== TABS ====================
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById('tab-' + tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            // Reload data for specific tabs
+            if (tabName === 'incidents') {
+                loadIncidents();
+            } else if (tabName === 'analytics') {
+                loadAnalytics();
+            } else if (tabName === 'payments') {
+                loadPaymentOrders();
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+// screencv/api/candidate/razorpay-order.js
+// Create Razorpay order and store submission with SERVER-SIDE FILE EXTRACTION
+
+const Razorpay = require("razorpay");
+const { v4: uuidv4 } = require("uuid");
+const { supabase } = require("../../lib/supabase-client");
+const { extractTextFromResume } = require("../../lib/file-extraction");
+const {
+  RAZORPAY_KEY_ID,
+  RAZORPAY_KEY_SECRET,
+} = require("../../lib/constants");
+
+const razorpay = new Razorpay({
+  key_id: RAZORPAY_KEY_ID,
+  key_secret: RAZORPAY_KEY_SECRET,
+});
+
+// ✅ SANITIZE TEXT - Remove null characters and invalid Unicode
+function sanitizeText(text) {
+  if (!text) return "";
+  return text
+    .replace(/\0/g, "")
+    .replace(/[\uFFFD\uFFFE\uFFFF]/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .trim();
+}
+
+async function createRazorpayOrder(req, res) {
+  try {
+    const { candidateEmail, jobTitle, jobDescription, feedbackToken } = req.body;
+    const resumeFile = req.files?.resume;
+
+    // Validate inputs
+    if (!candidateEmail || !jobTitle || !jobDescription || !resumeFile) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: candidateEmail, jobTitle, jobDescription, resume file",
+      });
+    }
+
+    console.log(`[Razorpay] Creating order for ${candidateEmail}...`);
+
+    // ✅ EXTRACT TEXT FROM RESUME SERVER-SIDE
+    console.log(`[Razorpay] Extracting text from resume: ${resumeFile.name}`);
+    
+    const extractResult = await extractTextFromResume(
+      resumeFile.data,
+      resumeFile.name
+    );
+
+    if (!extractResult.success) {
+      console.error("[Razorpay] Resume extraction failed:", extractResult.error);
+      
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "RESUME_EXTRACTION_FAILED",
+        email: candidateEmail,
+        amount: 99,
+        description: `Failed to extract resume: ${extractResult.error}`,
+        status: "unresolved",
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: extractResult.error || "Failed to extract resume text",
+        action: "RETRY_UPLOAD",
+      });
+    }
+
+    let resumeText = extractResult.text;
+    console.log(`[Razorpay] ✅ Resume extracted (${resumeText.length} chars, method: ${extractResult.method})`);
+
+    // ✅ SANITIZE ALL TEXT FIELDS
+    const sanitizedJobDescription = sanitizeText(jobDescription);
+    const sanitizedResumeText = sanitizeText(resumeText);
+    const sanitizedJobTitle = sanitizeText(jobTitle);
+
+    // Validate sanitized content
+    if (!sanitizedJobDescription || sanitizedJobDescription.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Job description is too short or invalid",
+      });
+    }
+
+    if (!sanitizedResumeText || sanitizedResumeText.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Resume text is too short or invalid",
+      });
+    }
+
+    // Create Razorpay order
+    const orderData = {
+      amount: 9900, // ₹99 in paise
+      currency: "INR",
+      receipt: `receipt_${Date.now()}`,
+    };
+
+    const order = await razorpay.orders.create(orderData);
+
+    if (!order || !order.id) {
+      throw new Error("Failed to create Razorpay order");
+    }
+
+    console.log(`[Razorpay] ✅ Order created: ${order.id}`);
+
+    // Generate submission ID
+    const submissionId = uuidv4();
+
+    // Store submission with EXTRACTED and SANITIZED text
+    const { error: insertError } = await supabase
+      .from("candidate_submissions")
+      .insert([
+        {
+          id: submissionId,
+          email: candidateEmail,
+          job_title: sanitizedJobTitle,
+          job_description: sanitizedJobDescription,
+          resume_text: sanitizedResumeText,
+          resume_filename: resumeFile.name,
+          razorpay_order_id: order.id,
+          payment_status: "pending",
+          feedback_token: feedbackToken,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (insertError) {
+      console.error("[Razorpay] Database error:", insertError);
+
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "ORDER_CREATION_FAILED",
+        razorpay_order_id: order.id,
+        email: candidateEmail,
+        amount: 99,
+        description: `Failed to store submission: ${insertError.message}`,
+        status: "unresolved",
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to create submission",
+        action: "CONTACT_SUPPORT",
+      });
+    }
+
+    console.log(
+      `[Razorpay] ✅ Submission stored: ${submissionId} with order ${order.id}`
+    );
+
+    // Return order + submission ID to frontend
+    res.json({
+      success: true,
+      order: {
+        id: order.id,
+        amount: order.amount,
+        currency: order.currency,
+      },
+      submissionId: submissionId,
+      razorpayKey: RAZORPAY_KEY_ID,
+    });
+  } catch (error) {
+    console.error("[Razorpay] Error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to create payment order",
+      action: "CONTACT_SUPPORT",
+    });
+  }
+}
+
+module.exports = { createRazorpayOrder };

@@ -1,0 +1,437 @@
+// screencv/api/candidate/razorpay-verify.js
+// IMPROVED: Verify Razorpay payment, handle ALL outcomes (captured, failed, cancelled)
+// Records all payment attempts in candidate_payments with proper status + error messages
+
+const Razorpay = require("razorpay");
+const { supabase } = require("../../lib/supabase-client");
+const { analyzeResumeVsJob } = require("./analyze");
+const {
+  RAZORPAY_KEY_ID,
+  RAZORPAY_KEY_SECRET,
+} = require("../../lib/constants");
+
+const razorpay = new Razorpay({
+  key_id: RAZORPAY_KEY_ID,
+  key_secret: RAZORPAY_KEY_SECRET,
+});
+
+// Verify payment from Razorpay
+async function verifyPayment(req, res) {
+  try {
+    const { paymentId, orderId, signature, submissionId } = req.body;
+
+    if (!paymentId || !orderId || !signature || !submissionId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing payment details",
+      });
+    }
+
+    console.log(`[Verify] Verifying payment ${paymentId} for order ${orderId}...`);
+
+    // Verify signature using Razorpay SDK
+    const crypto = require("crypto");
+    const body = orderId + "|" + paymentId;
+    const expectedSignature = crypto
+      .createHmac("sha256", RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest("hex");
+
+    const isValidSignature = expectedSignature === signature;
+
+    if (!isValidSignature) {
+      console.error("[Verify] ❌ Invalid signature!");
+      return res.status(400).json({
+        success: false,
+        error: "Invalid payment signature",
+      });
+    }
+
+    console.log("[Verify] ✅ Signature verified");
+
+    // Fetch payment details from Razorpay
+    const razorpayPayment = await razorpay.payments.fetch(paymentId);
+
+    console.log(`[Verify] Razorpay status: ${razorpayPayment.status}`);
+
+    // Fetch submission by submissionId
+    const { data: dbSubmission, error: fetchError } = await supabase
+      .from("candidate_submissions")
+      .select("*")
+      .eq("id", submissionId)
+      .single();
+
+    if (fetchError || !dbSubmission) {
+      console.error("[Verify] ❌ Submission not found:", fetchError);
+
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "SUBMISSION_NOT_FOUND",
+        submission_id: submissionId,
+        razorpay_payment_id: paymentId,
+        razorpay_order_id: orderId,
+        candidate_name: null,  // Submission not found, can't get name
+        email: razorpayPayment.email,
+        amount: razorpayPayment.amount / 100,
+        razorpay_status: razorpayPayment.status,
+        db_status: "NOT_FOUND",
+        description: `Submission ${submissionId} not found in DB`,
+        status: "unresolved",
+      });
+
+      return res.status(404).json({
+        success: false,
+        error: "Submission not found",
+        action: "CONTACT_SUPPORT",
+      });
+    }
+
+    const amountINR = razorpayPayment.amount / 100;
+
+    // ============================================
+    // SCENARIO 1: PAYMENT CAPTURED ✅
+    // ============================================
+    if (razorpayPayment.status === "captured") {
+      console.log(`[Verify] 💰 Payment CAPTURED for ${dbSubmission.id}`);
+
+      // ✅ UPDATE candidate_submissions with payment info
+      const { error: updateError } = await supabase
+        .from("candidate_submissions")
+        .update({
+          razorpay_payment_id: paymentId,
+          payment_status: "captured",
+          payment_date: new Date().toISOString(),
+          payment_amount: amountINR,
+        })
+        .eq("id", dbSubmission.id);
+
+      if (updateError) {
+        console.error("[Verify] DB update error:", updateError);
+
+        // Log incident
+        await supabase.from("payment_incidents").insert({
+          incident_type: "DB_UPDATE_ERROR",
+          submission_id: dbSubmission.id,
+          razorpay_payment_id: paymentId,
+          razorpay_order_id: orderId,
+          candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture name
+          email: dbSubmission.email,
+          amount: amountINR,
+          razorpay_status: razorpayPayment.status,
+          db_status: "UPDATE_FAILED",
+          description: `Failed to update payment status: ${updateError.message}`,
+          status: "unresolved",
+        });
+
+        return res.status(500).json({
+          success: false,
+          error: "Failed to confirm payment",
+          action: "CONTACT_SUPPORT",
+        });
+      }
+
+      console.log(`[Verify] ✅ candidate_submissions updated for ${dbSubmission.id}`);
+
+      // ✅ INSERT INTO candidate_payments table with VALID status
+      const { error: paymentInsertError } = await supabase
+        .from("candidate_payments")
+        .insert({
+          submission_id: dbSubmission.id,
+          email: dbSubmission.email,
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          amount_inr: amountINR,
+          status: "captured",  // ✅ VALID: Use "captured" not "completed"
+          payment_method: razorpayPayment.method || "razorpay",
+          error_message: null,  // No error for successful payment
+          completed_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        });
+
+      if (paymentInsertError) {
+        console.error("[Verify] Payment record insert error:", paymentInsertError);
+
+        // Log incident
+        await supabase.from("payment_incidents").insert({
+          incident_type: "PAYMENT_RECORD_INSERT_ERROR",
+          submission_id: dbSubmission.id,
+          razorpay_payment_id: paymentId,
+          razorpay_order_id: orderId,
+          candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture name
+          email: dbSubmission.email,
+          amount: amountINR,
+          razorpay_status: razorpayPayment.status,
+          description: `Failed to insert payment record: ${paymentInsertError.message}`,
+          status: "unresolved",
+        });
+
+        // Don't fail - payment is confirmed, just record insert failed
+        console.warn("[Verify] ⚠️ Payment record insert failed, but continuing...");
+      } else {
+        console.log(`[Verify] ✅ candidate_payments record inserted for submission ${dbSubmission.id}`);
+      }
+
+      console.log(`[Verify] ✅ Payment confirmed for submission ${dbSubmission.id}`);
+
+      // ✅ TRIGGER ANALYSIS IN BACKGROUND (don't wait for it)
+      console.log("[Verify] 🚀 Triggering analysis pipeline...");
+
+      const paymentData = {
+        orderId: orderId,
+        paymentId: paymentId,
+        amount: amountINR,
+      };
+
+      // Call analysis function (non-blocking - don't await)
+      analyzeResumeVsJob(
+        dbSubmission.id,
+        dbSubmission.resume_text,
+        dbSubmission.job_description,
+        dbSubmission.job_title,
+        dbSubmission.email,
+        dbSubmission.feedback_token,
+        paymentData
+      ).catch(err => {
+        console.error("[Verify] Analysis pipeline error:", err);
+        // Don't fail the response - just log it for admin to review
+      });
+
+      // Return success immediately (analysis happens in background)
+      return res.json({
+        success: true,
+        verified: true,
+        status: "CAPTURED",
+        message: "Payment verified successfully! Analysis in progress...",
+        submissionId: dbSubmission.id,
+        action: "PROCEED_WITH_ANALYSIS",
+      });
+    }
+
+    // ============================================
+    // SCENARIO 2: PAYMENT FAILED ❌
+    // ============================================
+    if (razorpayPayment.status === "failed") {
+      console.warn(`[Verify] ❌ Payment FAILED for ${dbSubmission.id}`);
+
+      const failureReason = razorpayPayment.error?.description || "Payment was declined by bank/card issuer";
+
+      // ✅ INSERT INTO candidate_payments with status="failed" + error message
+      const { error: paymentInsertError } = await supabase
+        .from("candidate_payments")
+        .insert({
+          submission_id: dbSubmission.id,
+          email: dbSubmission.email,
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          amount_inr: amountINR,
+          status: "failed",  // ✅ Record the failure
+          payment_method: razorpayPayment.method || "razorpay",
+          error_message: failureReason,  // ✅ CRITICAL: Store WHY it failed
+          created_at: new Date().toISOString(),
+        });
+
+      if (paymentInsertError) {
+        console.error("[Verify] Failed payment record insert error:", paymentInsertError);
+
+        // Log incident
+        await supabase.from("payment_incidents").insert({
+          incident_type: "PAYMENT_FAILED_RECORD_ERROR",
+          submission_id: dbSubmission.id,
+          razorpay_payment_id: paymentId,
+          razorpay_order_id: orderId,
+          email: dbSubmission.email,
+          amount: amountINR,
+          razorpay_status: razorpayPayment.status,
+          description: `Failed to record failed payment: ${paymentInsertError.message}`,
+          status: "unresolved",
+        });
+      } else {
+        console.log(`[Verify] ✅ Failed payment record inserted for tracking`);
+      }
+
+      // Log incident for tracking
+      await supabase.from("payment_incidents").insert({
+        incident_type: "PAYMENT_FAILED",
+        submission_id: dbSubmission.id,
+        razorpay_payment_id: paymentId,
+        razorpay_order_id: orderId,
+        candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture name
+        email: dbSubmission.email,
+        amount: amountINR,
+        razorpay_status: razorpayPayment.status,
+        description: failureReason,
+        status: "unresolved",
+      });
+
+      return res.json({
+        success: false,
+        verified: false,
+        status: "FAILED",
+        message: failureReason,
+        action: "RETRY_PAYMENT",
+      });
+    }
+
+    // ============================================
+    // SCENARIO 3: PAYMENT CANCELLED 🚫
+    // ============================================
+    if (razorpayPayment.status === "cancelled") {
+      console.warn(`[Verify] 🚫 Payment CANCELLED for ${dbSubmission.id}`);
+
+      // ✅ INSERT INTO candidate_payments with status="cancelled"
+      const { error: paymentInsertError } = await supabase
+        .from("candidate_payments")
+        .insert({
+          submission_id: dbSubmission.id,
+          email: dbSubmission.email,
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          amount_inr: amountINR,
+          status: "cancelled",  // ✅ Record cancellation
+          payment_method: razorpayPayment.method || "razorpay",
+          error_message: "Payment cancelled by user",
+          created_at: new Date().toISOString(),
+        });
+
+      if (!paymentInsertError) {
+        console.log(`[Verify] ✅ Cancelled payment record inserted for tracking`);
+      }
+
+      // Log incident
+      await supabase.from("payment_incidents").insert({
+        incident_type: "PAYMENT_CANCELLED",
+        submission_id: dbSubmission.id,
+        razorpay_payment_id: paymentId,
+        razorpay_order_id: orderId,
+        candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture name
+        email: dbSubmission.email,
+        amount: amountINR,
+        razorpay_status: razorpayPayment.status,
+        description: "User cancelled payment",
+        status: "unresolved",
+      });
+
+      return res.json({
+        success: false,
+        verified: false,
+        status: "CANCELLED",
+        message: "Payment was cancelled",
+        action: "RETRY_PAYMENT",
+      });
+    }
+
+    // ============================================
+    // SCENARIO 4: AUTHORIZED (but not yet captured)
+    // ============================================
+    if (razorpayPayment.status === "authorized") {
+      console.log(`[Verify] ⏳ Payment AUTHORIZED (not yet captured) for ${dbSubmission.id}`);
+
+      // ✅ INSERT INTO candidate_payments with status="pending"
+      const { error: paymentInsertError } = await supabase
+        .from("candidate_payments")
+        .insert({
+          submission_id: dbSubmission.id,
+          email: dbSubmission.email,
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          amount_inr: amountINR,
+          status: "pending",  // Use "pending" for authorized but not captured
+          payment_method: razorpayPayment.method || "razorpay",
+          error_message: "Payment authorized, awaiting capture",
+          created_at: new Date().toISOString(),
+        });
+
+      if (!paymentInsertError) {
+        console.log(`[Verify] ✅ Authorized payment record inserted`);
+      }
+
+      return res.json({
+        success: false,
+        verified: false,
+        status: "AUTHORIZED",
+        message: "Payment authorized. Waiting for capture.",
+        action: "WAIT_FOR_CAPTURE",
+      });
+    }
+
+    // ============================================
+    // SCENARIO 5: UNKNOWN STATUS
+    // ============================================
+    console.warn(`[Verify] ⚠️ Unknown payment status: ${razorpayPayment.status}`);
+
+    // Log incident for unknown status
+    await supabase.from("payment_incidents").insert({
+      incident_type: "UNKNOWN_PAYMENT_STATUS",
+      submission_id: dbSubmission.id,
+      razorpay_payment_id: paymentId,
+      razorpay_order_id: orderId,
+      candidate_name: dbSubmission.candidate_name || "Unknown",  // ⭐ Capture name
+      email: dbSubmission.email,
+      amount: amountINR,
+      razorpay_status: razorpayPayment.status,
+      description: `Unknown payment status received: ${razorpayPayment.status}`,
+      status: "unresolved",
+    });
+
+    return res.json({
+      success: false,
+      verified: false,
+      status: razorpayPayment.status,
+      message: `Unknown payment status: ${razorpayPayment.status}. Please contact support.`,
+      action: "CONTACT_SUPPORT",
+    });
+
+  } catch (error) {
+    console.error("[Verify] Error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Payment verification failed",
+      action: "CONTACT_SUPPORT",
+    });
+  }
+}
+
+// Validate payment token (from frontend before submission)
+async function validatePaymentToken(req, res) {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing orderId",
+      });
+    }
+
+    // Check if order exists in Razorpay
+    const order = await razorpay.orders.fetch(orderId);
+
+    if (!order) {
+      return res.json({
+        success: false,
+        message: "Order not found in Razorpay",
+      });
+    }
+
+    res.json({
+      success: true,
+      order: {
+        id: order.id,
+        amount: order.amount,
+        status: order.status,
+      },
+    });
+  } catch (error) {
+    console.error("[ValidateToken] Error:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+}
+
+module.exports = {
+  verifyPayment,
+  validatePaymentToken,
+};

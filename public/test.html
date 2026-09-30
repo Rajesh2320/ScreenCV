@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreenCV - API Testing Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 40px;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      font-size: 1.1em;
+      opacity: 0.9;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .card h2 {
+      color: #667eea;
+      margin-bottom: 5px;
+      font-size: 1.3em;
+    }
+
+    .card .endpoint {
+      color: #999;
+      font-size: 0.9em;
+      margin-bottom: 20px;
+      font-family: 'Courier New', monospace;
+      background: #f5f5f5;
+      padding: 8px;
+      border-radius: 4px;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      color: #333;
+      font-weight: 500;
+      font-size: 0.9em;
+    }
+
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95em;
+      font-family: inherit;
+      transition: border-color 0.3s;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 100px;
+    }
+
+    .button-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.95em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+
+    .btn-secondary:hover {
+      background: #e0e0e0;
+    }
+
+    .response {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 6px;
+      font-size: 0.9em;
+      font-family: 'Courier New', monospace;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .response.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .response.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .response.loading {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+
+    .response pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .input-group {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .input-group button {
+      padding: 10px 15px;
+      margin: 0;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.8em;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .status-pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .status-success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .full-width {
+      grid-column: 1 / -1;
+    }
+
+    .help-text {
+      font-size: 0.85em;
+      color: #666;
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .flow-diagram {
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      margin-top: 30px;
+    }
+
+    .flow-diagram h3 {
+      color: #667eea;
+      margin-bottom: 20px;
+    }
+
+    .flow-steps {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .flow-step {
+      flex: 1;
+      min-width: 150px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      text-align: center;
+      border-left: 4px solid #667eea;
+    }
+
+    .flow-step .number {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #667eea;
+      margin-bottom: 5px;
+    }
+
+    .flow-step .label {
+      font-size: 0.9em;
+      color: #333;
+    }
+
+    .flow-arrow {
+      color: #667eea;
+      font-size: 1.5em;
+      margin: 0 5px;
+    }
+
+    @media (max-width: 768px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .button-group {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-steps {
+        flex-direction: column;
+      }
+
+      .flow-arrow {
+        transform: rotate(90deg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🧪 ScreenCV API Testing</h1>
+      <p>Visual interface to test all 4 endpoints - No terminal needed!</p>
+    </div>
+
+    <div class="grid">
+      <!-- ENDPOINT 1: SUBMIT -->
+      <div class="card">
+        <h2>1️⃣ Submit Resume</h2>
+        <div class="endpoint">POST /api/candidate/submit</div>
+
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="submit_email" placeholder="john@example.com" value="test@example.com">
+        </div>
+
+        <div class="form-group">
+          <label>Candidate Name</label>
+          <input type="text" id="submit_name" placeholder="John Doe" value="John Doe">
+        </div>
+
+        <div class="form-group">
+          <label>Resume File *</label>
+          <input type="file" id="submit_resume_file" accept=".pdf,.docx,.doc,.txt" />
+          <div class="help-text">Upload PDF, DOCX, DOC, or TXT files</div>
+        </div>
+
+        <div class="form-group">
+          <label>Job Title *</label>
+          <input type="text" id="submit_job_title" placeholder="Senior Backend Engineer" value="Senior Backend Engineer">
+        </div>
+
+        <div class="form-group">
+          <label>Job Description *</label>
+          <textarea id="submit_job_description" placeholder="Paste job description here...">We are looking for a Senior Backend Engineer to lead our platform development. Required: 5+ years of backend experience, Node.js expertise, PostgreSQL knowledge, AWS certification preferred. Responsibilities: Design and build scalable APIs, mentor junior developers, participate in architecture decisions.</textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Job URL (optional)</label>
+          <input type="url" id="submit_job_url" placeholder="https://linkedin.com/jobs/123456">
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" onclick="testSubmit()">Send Request</button>
+          <button class="btn-secondary" onclick="clearResponse('submit_response')">Clear</button>
+        </div>
+
+        <div id="submit_response"></div>
+      </div>
+
+      <!-- ENDPOINT 2: CREATE PAYMENT -->
+      <div class="card">
+        <h2>2️⃣ Create Payment</h2>
+        <div class="endpoint">POST /api/candidate/create-payment</div>
+
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" id="payment_email" placeholder="john@example.com" value="test@example.com">
+        </div>
+
+        <div class="form-group">
+          <label>Submission ID *</label>
+          <input type="text" id="payment_submission_id" placeholder="Paste submissionId from step 1" value="">
+          <div class="help-text">Get this from the response of "Submit Resume" (Step 1)</div>
+        </div>
+
+        <div class="form-group">
+          <label style="color: #667eea; font-weight: bold;">Amount: ₹99</label>
+          <div class="help-text">Price is fixed at ₹99 (Mock payment for testing)</div>
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" onclick="testCreatePayment()">Create Order</button>
+          <button class="btn-secondary" onclick="clearResponse('payment_response')">Clear</button>
+        </div>
+
+        <div id="payment_response"></div>
+      </div>
+
+      <!-- ENDPOINT 3: PAYMENT WEBHOOK -->
+      <div class="card">
+        <h2>3️⃣ Payment Webhook</h2>
+        <div class="endpoint">POST /api/candidate/payment-webhook</div>
+
+        <div class="form-group">
+          <label>Order ID *</label>
+          <input type="text" id="webhook_order_id" placeholder="Paste orderId from step 2" value="">
+          <div class="help-text">Get this from the response of "Create Payment" (Step 2)</div>
+        </div>
+
+        <div class="form-group">
+          <label>Payment ID *</label>
+          <input type="text" id="webhook_payment_id" placeholder="auto-generated" value="">
+          <div class="help-text">Optional - will be auto-generated if empty</div>
+        </div>
+
+        <div class="form-group">
+          <label>Status *</label>
+          <select id="webhook_status">
+            <option value="COMPLETED">COMPLETED (Success)</option>
+            <option value="FAILED">FAILED (Test failure)</option>
+          </select>
+        </div>
+
+        <div class="help-text" style="margin: 15px 0; padding: 10px; background: #e7f3ff; border-radius: 4px;">
+          ⚠️ This endpoint triggers the full workflow: Resume analysis, PDF generation, and email sending. It may take 10-30 seconds to complete.
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" onclick="testWebhook()">Confirm Payment</button>
+          <button class="btn-secondary" onclick="clearResponse('webhook_response')">Clear</button>
+        </div>
+
+        <div id="webhook_response"></div>
+      </div>
+
+      <!-- ENDPOINT 4: EXTRACT JOB -->
+      <div class="card">
+        <h2>4️⃣ Extract Job URL</h2>
+        <div class="endpoint">POST /api/candidate/extract-job-url</div>
+
+        <div class="form-group">
+          <label>Job URL *</label>
+          <input type="url" id="extract_url" placeholder="https://linkedin.com/jobs/123456" value="">
+          <div class="help-text">LinkedIn, Indeed, or any job posting URL. If extraction fails, manual paste is the fallback.</div>
+        </div>
+
+        <div class="button-group">
+          <button class="btn-primary" onclick="testExtractJob()">Extract Job</button>
+          <button class="btn-secondary" onclick="clearResponse('extract_response')">Clear</button>
+        </div>
+
+        <div id="extract_response"></div>
+      </div>
+    </div>
+
+    <!-- FLOW DIAGRAM -->
+    <div class="flow-diagram">
+      <h3>📊 Complete Flow (What Happens Behind the Scenes)</h3>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <div class="number">1</div>
+          <div class="label">Submit Resume<br/><small>Extract text, detect language</small></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="number">2</div>
+          <div class="label">Create Payment<br/><small>Generate order ID</small></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="number">3</div>
+          <div class="label">Webhook (Main!)<br/><small>Score + PDF + Email</small></div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="number">✅</div>
+          <div class="label">Done<br/><small>Results in email</small></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- INSTRUCTIONS -->
+    <div class="flow-diagram" style="margin-top: 30px;">
+      <h3>🚀 How to Test</h3>
+      <div style="line-height: 1.8; color: #333;">
+        <p><strong>1. Start Local Server:</strong> Run <code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px;">npm run dev</code> in your terminal</p>
+        <p><strong>2. Fill Step 1:</strong> Enter resume and job details, click "Send Request"</p>
+        <p><strong>3. Copy submissionId:</strong> Paste it into Step 2's "Submission ID" field</p>
+        <p><strong>4. Create Payment:</strong> Click "Create Order", copy the orderId from response</p>
+        <p><strong>5. Paste orderId:</strong> Into Step 3's "Order ID" field</p>
+        <p><strong>6. Confirm Payment:</strong> Click "Confirm Payment" - this runs the full analysis!</p>
+        <p><strong>7. Check Response:</strong> See score, flags, interview questions in the response</p>
+        <p style="color: #667eea; font-weight: bold; margin-top: 15px;">💡 Tip: Keep .env.local filled with your Supabase and Anthropic credentials!</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "http://localhost:3000"; // Local dev server
+
+    // ===== TEST SUBMIT =====
+    async function testSubmit() {
+      const email = document.getElementById("submit_email").value;
+      const candidateName = document.getElementById("submit_name").value;
+      const fileInput = document.getElementById("submit_resume_file");
+      const jobTitle = document.getElementById("submit_job_title").value;
+      const jobDescription = document.getElementById("submit_job_description").value;
+      const jobUrl = document.getElementById("submit_job_url").value;
+
+      if (!email || !fileInput.files.length || !jobTitle || !jobDescription) {
+        showResponse("submit_response", "error", "All required fields must be filled (including resume file)");
+        return;
+      }
+
+      showResponse("submit_response", "loading", "Reading file...");
+
+      try {
+        // Read file as base64
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+
+        reader.onload = async (e) => {
+          const resumeData = e.target.result.split(',')[1]; // Remove data:application/pdf;base64, prefix
+          const resumeFilename = file.name; // Use actual filename
+
+          showResponse("submit_response", "loading", "Submitting resume...");
+
+          try {
+            const response = await fetch("http://localhost:3000/api/candidate/submit", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email,
+                candidateName,
+                resumeData,
+                resumeFilename,
+                jobTitle,
+                jobDescription,
+                jobUrl: jobUrl || null,
+              }),
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+              // Auto-fill next step (Step 2)
+              document.getElementById("payment_email").value = email; // Auto-fill email
+              document.getElementById("payment_submission_id").value = data.submissionId;
+              showResponse("submit_response", "success", JSON.stringify(data, null, 2));
+            } else {
+              showResponse("submit_response", "error", JSON.stringify(data, null, 2));
+            }
+          } catch (error) {
+            showResponse("submit_response", "error", `Error: ${error.message}`);
+          }
+        };
+
+        reader.onerror = () => {
+          showResponse("submit_response", "error", "Failed to read file");
+        };
+
+        reader.readAsDataURL(file); // This gives us base64
+      } catch (error) {
+        showResponse("submit_response", "error", `Error: ${error.message}`);
+      }
+    }
+
+    // ===== TEST CREATE PAYMENT =====
+    async function testCreatePayment() {
+      const email = document.getElementById("payment_email").value;
+      const submissionId = document.getElementById("payment_submission_id").value;
+
+      if (!email || !submissionId) {
+        showResponse("payment_response", "error", "Email and Submission ID are required");
+        return;
+      }
+
+      showResponse("payment_response", "loading", "Creating payment order...");
+
+      try {
+        const response = await fetch(`${API_URL}/api/candidate/create-payment`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, submissionId }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          // Auto-fill next step (Step 3)
+          document.getElementById("webhook_order_id").value = data.orderId;
+          document.getElementById("webhook_payment_id").value = data.paymentId;
+          showResponse("payment_response", "success", JSON.stringify(data, null, 2));
+        } else {
+          showResponse("payment_response", "error", JSON.stringify(data, null, 2));
+        }
+      } catch (error) {
+        showResponse("payment_response", "error", `Error: ${error.message}`);
+      }
+    }
+
+    // ===== TEST WEBHOOK =====
+    async function testWebhook() {
+      const orderId = document.getElementById("webhook_order_id").value;
+      const paymentId = document.getElementById("webhook_payment_id").value || "mock_pay_" + Date.now();
+      const status = document.getElementById("webhook_status").value;
+
+      if (!orderId) {
+        showResponse("webhook_response", "error", "Order ID is required");
+        return;
+      }
+
+      showResponse("webhook_response", "loading", "Processing payment and analyzing resume... This may take 20-30 seconds.");
+
+      try {
+        const response = await fetch(`${API_URL}/api/candidate/payment-webhook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId, paymentId, status }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          // Format response with premium insights nicely
+          let displayText = `✅ ANALYSIS COMPLETE\n\n`;
+          displayText += `Score: ${data.score}/100\n`;
+          displayText += `Reason: ${data.reason}\n\n`;
+          
+          displayText += `Green Flags:\n${data.greenFlags.map(f => `  ✓ ${f}`).join('\n')}\n\n`;
+          
+          displayText += `Red Flags:\n${data.redFlags.map(f => `  ✗ ${f}`).join('\n')}\n\n`;
+          
+          displayText += `Interview Questions:\n${data.interviewQuestions.map((q, i) => `  ${i+1}. ${q}`).join('\n')}\n\n`;
+          
+          displayText += `Resume Gaps:\n${data.resumeGaps.map(g => `  • ${g}`).join('\n')}\n\n`;
+          
+          // Show premium insights if available
+          if (data.premiumInsights) {
+            displayText += `\n${'='.repeat(60)}\n`;
+            displayText += `🎁 PREMIUM INSIGHTS\n`;
+            displayText += `${'='.repeat(60)}\n\n`;
+            
+            if (data.premiumInsights.resumeRewriteSuggestions) {
+              displayText += `✏️ RESUME REWRITE SUGGESTIONS:\n`;
+              for (const sugg of data.premiumInsights.resumeRewriteSuggestions) {
+                displayText += `\n  Section: ${sugg.section}\n`;
+                displayText += `  Current: "${sugg.current}"\n`;
+                displayText += `  Suggested: "${sugg.suggested}"\n`;
+                displayText += `  Key Term: "${sugg.keywordToAdd}"\n`;
+              }
+              displayText += `\n`;
+            }
+            
+            if (data.premiumInsights.interviewPrepGuide) {
+              displayText += `\n🎤 INTERVIEW PREP GUIDE:\n`;
+              for (const prep of data.premiumInsights.interviewPrepGuide) {
+                displayText += `\n  Q: ${prep.question}\n`;
+                displayText += `  Think about: ${prep.thinkAbout}\n`;
+                displayText += `  Answer: "${prep.suggestedAnswer}"\n`;
+                displayText += `  Keywords: ${prep.keywords.join(', ')}\n`;
+              }
+              displayText += `\n`;
+            }
+            
+            if (data.premiumInsights.networkRecommendations) {
+              displayText += `\n🤝 NETWORK RECOMMENDATIONS:\n`;
+              for (const net of data.premiumInsights.networkRecommendations) {
+                displayText += `\n  ${net.role}\n`;
+                displayText += `  Why: ${net.why}\n`;
+                displayText += `  Where: ${net.whereToFind}\n`;
+              }
+            }
+            
+            displayText += `\n${'='.repeat(60)}\n\n`;
+          }
+          
+          displayText += `\nFull Response JSON:\n${JSON.stringify(data, null, 2)}`;
+          showResponse("webhook_response", "success", displayText);
+        } else {
+          showResponse("webhook_response", "error", JSON.stringify(data, null, 2));
+        }
+      } catch (error) {
+        showResponse("webhook_response", "error", `Error: ${error.message}`);
+      }
+    }
+
+    // ===== TEST EXTRACT JOB =====
+    async function testExtractJob() {
+      const jobUrl = document.getElementById("extract_url").value;
+
+      if (!jobUrl) {
+        showResponse("extract_response", "error", "Job URL is required");
+        return;
+      }
+
+      showResponse("extract_response", "loading", "Extracting job details from URL...");
+
+      try {
+        const response = await fetch(`${API_URL}/api/candidate/extract-job-url`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobUrl }),
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showResponse("extract_response", "success", JSON.stringify(data, null, 2));
+        } else {
+          showResponse("extract_response", "error", JSON.stringify(data, null, 2));
+        }
+      } catch (error) {
+        showResponse("extract_response", "error", `Error: ${error.message}`);
+      }
+    }
+
+    // ===== HELPER: SHOW RESPONSE =====
+    function showResponse(elementId, type, message) {
+      const element = document.getElementById(elementId);
+      element.className = `response ${type}`;
+      element.innerHTML = `<pre>${message}</pre>`;
+    }
+
+    function clearResponse(elementId) {
+      document.getElementById(elementId).innerHTML = "";
+    }
+  </script>
+</body>
+</html>

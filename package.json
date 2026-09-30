@@ -1,0 +1,40 @@
+{
+  "name": "screencv",
+  "version": "1.0.0",
+  "description": "AI-powered resume screener for job candidates",
+  "main": "api/candidate/submit.js",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "echo 'Vercel builds automatically'",
+    "test": "echo 'Add tests here'"
+  },
+  "keywords": [
+    "resume",
+    "screening",
+    "claude",
+    "ai",
+    "job-matching"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "axios": "^1.6.0",
+    "bcrypt": "^6.0.0",
+    "cheerio": "^1.0.0-rc.12",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "express-fileupload": "^1.5.2",
+    "mammoth": "^1.13.0",
+    "multer": "^2.4.0",
+    "nodemailer": "^6.10.1",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.13.0",
+    "razorpay": "^2.9.8",
+    "uuid": "^9.0.1"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}

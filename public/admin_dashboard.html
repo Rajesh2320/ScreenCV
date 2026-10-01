@@ -176,7 +176,14 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border: 2px solid #667eea;
             text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
         }
 
         .stat-card h3 {
@@ -222,6 +229,7 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border: 2px solid #667eea;
         }
 
         .tab-content.active {
@@ -297,6 +305,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            border: 2px solid #667eea;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
 
         .toggle-switch {
@@ -333,6 +343,22 @@
             text-align: center;
             padding: 40px;
             color: #999;
+        }
+
+        /* 🔵 Search Input Styling */
+        .search-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #667eea;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
     </style>
 </head>
@@ -423,7 +449,7 @@
                 <button class="tab-btn active" onclick="switchTab('statistics')">📈 Statistics</button>
                 <button class="tab-btn" onclick="switchTab('payments')">💳 Payments</button>
                 <button class="tab-btn" onclick="switchTab('analytics')">📊 Analytics</button>
-                <button class="tab-btn" id="incidentsBtn" onclick="switchTab('incidents')">⚠️ Incidents</button>
+                <button class="tab-btn id="incidentsBtn" onclick="switchTab('incidents')">⚠️ Incidents</button>
             </div>
 
             <!-- Statistics Tab -->
@@ -440,7 +466,7 @@
                         type="text" 
                         id="paymentSearch" 
                         placeholder="🔍 Search by Email, Name, Order ID, or Payment ID..." 
-                        style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;"
+                        class="search-input"
                     >
                 </div>
                 <div id="paymentsContainer" class="loading">Loading payment orders...</div>
@@ -462,13 +488,12 @@
                     <strong>Incident Summary:</strong> 
                     <span id="incidentSummary">Loading...</span>
                 </div>
-                <!-- ⭐ NEW: Search for incidents -->
                 <div style="margin-bottom: 20px;">
                     <input 
                         type="text" 
                         id="incidentSearch" 
                         placeholder="🔍 Search by Email, Candidate Name, Order ID, or Incident Type..." 
-                        style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;"
+                        class="search-input"
                     >
                 </div>
                 <div id="incidentsContainer" class="loading">Loading incidents...</div>
@@ -486,11 +511,11 @@
             const passwordToggle = document.getElementById('passwordToggle');
             
             if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';  // Show password
-                passwordToggle.textContent = '👁️‍🗨️';  // Closed eye with slash
+                passwordInput.type = 'text';
+                passwordToggle.textContent = '👁️‍🗨️';
             } else {
-                passwordInput.type = 'password';  // Hide password
-                passwordToggle.textContent = '👁️';  // Open eye
+                passwordInput.type = 'password';
+                passwordToggle.textContent = '👁️';
             }
         }
 
@@ -574,7 +599,6 @@
                     document.getElementById('todayCount').textContent = data.todayCount;
                     document.getElementById('monthCount').textContent = data.monthCount;
                     
-                    // Financial breakdown
                     document.getElementById('ibeAmount').textContent = '₹' + data.ibeAmount;
                     document.getElementById('claudeCost').textContent = '₹' + data.claudeCost.toFixed(2);
                     document.getElementById('razorpayCost').textContent = '₹' + data.razorpayCost.toFixed(2);
@@ -593,7 +617,7 @@
             }
         }
 
-        let allPayments = [];  // ✅ Store all payments for searching
+        let allPayments = [];
 
         // ==================== PAYMENT ORDERS ====================
         async function loadPaymentOrders() {
@@ -615,22 +639,16 @@
                     return;
                 }
 
-                // ✅ Store all payments for searching
                 allPayments = data.payments;
-
-                // Render all payments initially
                 renderPaymentTable(allPayments);
                 
-                // ✅ Add search event listener
                 const searchInput = document.getElementById('paymentSearch');
                 if (searchInput) {
                     searchInput.addEventListener('input', function() {
                         const searchTerm = this.value.toLowerCase();
                         if (!searchTerm) {
-                            // No search term, show all
                             renderPaymentTable(allPayments);
                         } else {
-                            // Filter payments
                             const filtered = allPayments.filter(payment => {
                                 const email = (payment.email || '').toLowerCase();
                                 const name = (payment.name || '').toLowerCase();
@@ -663,7 +681,6 @@
                 return;
             }
 
-            // Build table
             let html = `
                 <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
                     📊 Showing ${payments.length} payment${payments.length !== 1 ? 's' : ''}
@@ -728,7 +745,6 @@
                     return;
                 }
 
-                // Build table
                 let html = `
                     <table>
                         <thead>
@@ -777,8 +793,6 @@
         async function loadIncidents() {
             try {
                 console.log('[Dashboard] Loading payment incidents...');
-                // ✅ status= (empty) bypasses default "unresolved" filter to get ALL incidents
-                // limit=500 to fetch up to 500 incidents for the dashboard
                 const data = await apiCall('/api/admin/payment-incidents?status=&limit=500');
                 
                 console.log('[Dashboard] Incidents response:', data);
@@ -791,7 +805,6 @@
                     return;
                 }
 
-                // Get incidents array and summary
                 const incidents = data.incidents || [];
                 const summary = data.summary || {};
 
@@ -801,7 +814,6 @@
                     return;
                 }
 
-                // Update summary with safe defaults
                 const totalUnresolved = incidents.filter(i => i.status === 'unresolved').length;
                 const totalResolved = incidents.filter(i => i.status === 'resolved').length;
                 
@@ -811,19 +823,15 @@
                     ✅ Resolved: ${totalResolved}
                 `;
 
-                // Render the incidents table using the new function
                 renderIncidentsTable(incidents);
                 
-                // ⭐ Add search functionality for incidents
                 const searchInput = document.getElementById('incidentSearch');
                 if (searchInput) {
                     searchInput.addEventListener('input', function() {
                         const searchTerm = this.value.toLowerCase();
                         if (!searchTerm) {
-                            // No search term, show all
                             renderIncidentsTable(incidents);
                         } else {
-                            // Filter incidents
                             const filtered = incidents.filter(incident => {
                                 const email = (incident.email || '').toLowerCase();
                                 const name = (incident.candidate_name || '').toLowerCase();
@@ -849,7 +857,6 @@
             }
         }
         
-        // ⭐ Render incidents table (used for both initial load and search filtering)
         function renderIncidentsTable(incidents) {
             const container = document.getElementById('incidentsContainer');
             
@@ -914,7 +921,6 @@
                 console.log('[Dashboard] Tool status data:', data);
                 
                 if (data.success) {
-                    // API returns tool_active as string ('true' or 'false'), not boolean
                     const isActive = data.tool_active === 'true' || data.tool_active === true;
                     const toggle = document.getElementById('toolToggle');
                     const statusText = document.getElementById('toolStatusText');
@@ -949,7 +955,6 @@
 
         // ==================== TABS ====================
         function switchTab(tabName) {
-            // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.classList.remove('active');
             });
@@ -957,11 +962,9 @@
                 btn.classList.remove('active');
             });
 
-            // Show selected tab
             document.getElementById('tab-' + tabName).classList.add('active');
             event.target.classList.add('active');
 
-            // Reload data for specific tabs
             if (tabName === 'incidents') {
                 loadIncidents();
             } else if (tabName === 'analytics') {

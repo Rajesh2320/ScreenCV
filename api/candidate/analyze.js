@@ -13,6 +13,8 @@
 //     filename is sanitised.
 //  6. Email wording updated: the "rate us" link is removed (the rating page is
 //     not live yet) and the customer is asked to reply with feedback instead.
+//  7. The report now receives the real factor scores from the analysis
+//     (previously an empty object, which made the report show placeholders).
 
 const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
@@ -77,11 +79,11 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       scoringLogic: analysisData.scoring_logic || "",
       matchCategory: analysisData.match_category || "Partial Match",
       categoryEvidence: analysisData.category_evidence || "",
-      scoringBreakdown: {},
+      scoringBreakdown: analysisData.factor_scores || {},
       top5Improvements: analysisData.improvements || [],
       concerns: analysisData.concerns || [],
       interviewQuestions: analysisData.interview_questions || [],
-      interviewRecommendation: analysisData.interview_recommendation || "CONSIDER",
+      interviewRecommendation: analysisData.interview_recommendation,
     });
 
     // Inject feedback token

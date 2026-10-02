@@ -23,6 +23,8 @@ const adminFeedbackMetrics = require("./api/admin/feedback-metrics");
 const { createRazorpayOrder } = require("./api/candidate/razorpay-order");
 const { verifyPayment } = require("./api/candidate/razorpay-verify");
 const { handlePaymentWebhook } = require("./api/candidate/razorpay-webhook");
+// ⭐ NEW IMPORT: Routing webhook handler
+const { handlePaymentWebhookRouter } = require("./api/candidate/razorpay-webhook-router");
 const { 
   getIncidents, 
   getIncidentDetail,
@@ -123,7 +125,27 @@ console.log("  GET /api/admin/feedback-metrics (auth required)");
 // ✅ Note: fileUpload() middleware handles multipart/form-data for razorpay-order
 app.post("/api/candidate/razorpay-order", createRazorpayOrder);
 app.post("/api/candidate/razorpay-verify", verifyPayment);
-app.post("/api/candidate/razorpay-webhook", handlePaymentWebhook);
+
+// ⭐ WEBHOOK ROUTES WITH RAW BODY MIDDLEWARE
+// Both endpoints need raw body for signature verification
+app.post(
+  "/api/candidate/razorpay-webhook",
+  express.raw({ type: "application/json" }),
+  (req, res, next) => {
+    req.rawBody = req.body.toString();
+    handlePaymentWebhook(req, res);
+  }
+);
+
+// ⭐ NEW: ROUTING WEBHOOK (Handles both staging + production)
+app.post(
+  "/api/candidate/razorpay-webhook-router",
+  express.raw({ type: "application/json" }),
+  (req, res, next) => {
+    req.rawBody = req.body.toString();
+    handlePaymentWebhookRouter(req, res);
+  }
+);
 
 // Admin Payment Incidents Routes
 app.get("/api/admin/payment-incidents", getIncidents);
@@ -135,7 +157,8 @@ app.get("/api/admin/payment-stats", getPaymentStats);
 console.log("[Server] ✅ Payment routes registered:");
 console.log("  POST /api/candidate/razorpay-order (with file upload)");
 console.log("  POST /api/candidate/razorpay-verify");
-console.log("  POST /api/candidate/razorpay-webhook");
+console.log("  POST /api/candidate/razorpay-webhook (signature verified)");
+console.log("  POST /api/candidate/razorpay-webhook-router ⭐ (NEW: Routing webhook - signature verified)");
 console.log("  GET  /api/admin/payment-incidents");
 console.log("  GET  /api/admin/payment-incidents/:incidentId");
 console.log("  POST /api/admin/payment-incidents/:incidentId/resolve-trigger");
@@ -219,7 +242,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(
-    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n╚════════════════════════════════════════════╝\n`
+    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n╚════════════════════════════════════════════╝\n`
   );
 });
 

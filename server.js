@@ -42,7 +42,32 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ============================================
-// MIDDLEWARE
+// ⭐ CRITICAL: Capture raw body for webhooks
+// This MUST run BEFORE express.json()
+// ============================================
+
+app.use((req, res, next) => {
+  // Check if this is a webhook route
+  if (req.path === "/api/candidate/razorpay-webhook" || 
+      req.path === "/api/candidate/razorpay-webhook-router") {
+    
+    let rawBody = "";
+    
+    req.on("data", (chunk) => {
+      rawBody += chunk.toString();
+    });
+    
+    req.on("end", () => {
+      req.rawBody = rawBody;
+      next();
+    });
+  } else {
+    next();
+  }
+});
+
+// ============================================
+// MIDDLEWARE (now that raw body is captured)
 // ============================================
 
 app.use(express.json());
@@ -126,13 +151,10 @@ console.log("  GET /api/admin/feedback-metrics (auth required)");
 app.post("/api/candidate/razorpay-order", createRazorpayOrder);
 app.post("/api/candidate/razorpay-verify", verifyPayment);
 
-// ⭐ WEBHOOK ROUTES WITH RAW BODY MIDDLEWARE
-// Both endpoints need raw body for signature verification
+// ⭐ WEBHOOK ROUTES (raw body already captured by middleware above)
 app.post(
   "/api/candidate/razorpay-webhook",
-  express.raw({ type: "application/json" }),
-  (req, res, next) => {
-    req.rawBody = req.body.toString();
+  (req, res) => {
     handlePaymentWebhook(req, res);
   }
 );
@@ -140,9 +162,7 @@ app.post(
 // ⭐ NEW: ROUTING WEBHOOK (Handles both staging + production)
 app.post(
   "/api/candidate/razorpay-webhook-router",
-  express.raw({ type: "application/json" }),
-  (req, res, next) => {
-    req.rawBody = req.body.toString();
+  (req, res) => {
     handlePaymentWebhookRouter(req, res);
   }
 );
@@ -242,7 +262,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(
-    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n╚════════════════════════════════════════════╝\n`
+    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n║     Raw Body Capture: Ready ✅ (FIXED)      ║\n╚════════════════════════════════════════════╝\n`
   );
 });
 

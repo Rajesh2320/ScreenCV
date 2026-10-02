@@ -11,6 +11,8 @@
 //  4. Failures use console.error so they show up as errors in Vercel logs.
 //  5. Job title is escaped before going into the email HTML; the attachment
 //     filename is sanitised.
+//  6. Email wording updated: the "rate us" link is removed (the rating page is
+//     not live yet) and the customer is asked to reply with feedback instead.
 
 const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
@@ -140,20 +142,15 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
     let emailSent = false;
     let emailError = null;
     try {
-      if (!process.env.FEEDBACK_BASE_URL && process.env.VERCEL) {
-        console.warn("[ANALYZE] ⚠️ FEEDBACK_BASE_URL is not set - feedback link will point to localhost");
-      }
-      const feedbackBaseUrl = process.env.FEEDBACK_BASE_URL || 'http://localhost:3000';
-      const feedbackLine = feedbackToken
-        ? `<p>Please feel free to <a href="${feedbackBaseUrl}/feedback?token=${encodeURIComponent(feedbackToken)}">rate us</a> and provide feedback.</p>`
-        : "";
-
+      // The rating page is not live yet, so the email asks for feedback by
+      // reply instead of linking to /feedback?token=... (restore the link here
+      // once that page works).
       const emailBody = `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <p>Hi,</p>
-          <p>Thank you for using ScreenCV services.</p>
-          <p>Attached is your analysis report for the ${escapeHtml(jobTitle)} position.</p>
-          ${feedbackLine}
+          <p>Hello,</p>
+          <p>Thank you for choosing ScreenCV.</p>
+          <p>Your analysis report for the <strong>${escapeHtml(jobTitle)}</strong> position is attached to this email.</p>
+          <p>We would value your feedback. If you have any comments on the report, or suggestions for how we can improve ScreenCV, simply reply to this email.</p>
           <p>Regards,<br>Team ScreenCV</p>
         </div>
       `;

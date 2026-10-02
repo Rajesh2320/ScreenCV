@@ -1,8 +1,6 @@
 // screencv/server.js
-// Express server with candidate + admin + feedback + PAYMENT + PUBLIC STATUS routes
+// Simple Express server - back to basics, no routing complexity
 
-
-// ⭐ LOAD .env.local (Optional - Vercel uses environment variables)
 require("dotenv").config({ path: ".env.local", override: true });
 console.log("[OK] ✅ Environment loaded (local or Vercel)");
 
@@ -15,16 +13,14 @@ const { supabase } = require("./lib/supabase-client");
 const { submitResume } = require("./api/candidate/submit.js");
 const adminRoutes = require("./api/admin/routes");
 
-// Feedback routes (NEW)
+// Feedback routes
 const feedbackRoutes = require("./api/candidate/feedback");
 const adminFeedbackMetrics = require("./api/admin/feedback-metrics");
 
-// ==================== PAYMENT IMPORTS ====================
+// Payment routes
 const { createRazorpayOrder } = require("./api/candidate/razorpay-order");
 const { verifyPayment } = require("./api/candidate/razorpay-verify");
 const { handlePaymentWebhook } = require("./api/candidate/razorpay-webhook");
-// ⭐ NEW IMPORT: Routing webhook handler
-const { handlePaymentWebhookRouter } = require("./api/candidate/razorpay-webhook-router");
 const { 
   getIncidents, 
   getIncidentDetail,
@@ -33,7 +29,7 @@ const {
   getPaymentStats 
 } = require("./api/admin/payment-incidents");
 
-// ✅ NEW ADMIN ANALYTICS IMPORTS (FIXED)
+// Analytics
 const { getPaymentOrders } = require("./api/admin/payment-orders");
 const jobTitlesRoute = require("./api/admin/job-titles");
 const dailyReportRoute = require("./api/admin/daily-report");
@@ -44,8 +40,8 @@ const PORT = process.env.PORT || 3000;
 console.log("[Server] Starting ScreenCV server...");
 
 // ============================================
-// ⭐ CRITICAL: Custom body parser for webhooks
-// This captures RAW body before any JSON parsing
+// ⭐ CRITICAL: Capture raw body for webhook
+// This MUST come BEFORE express.json()
 // ============================================
 
 const captureRawBody = (req, res, buf, encoding) => {
@@ -55,56 +51,43 @@ const captureRawBody = (req, res, buf, encoding) => {
 };
 
 // ============================================
-// ⭐ Register WEBHOOK routes FIRST
-// with custom body parser to capture raw body
-// This MUST happen BEFORE express.json()
+// Register WEBHOOK first (with raw body capture)
 // ============================================
-
-console.log("[Server] Registering webhook routes (with raw body capture)...");
 
 app.post(
   "/api/candidate/razorpay-webhook",
   express.json({ verify: captureRawBody }),
   (req, res) => {
-    console.log("[Webhook] Raw body captured:", req.rawBody ? "✅ YES" : "❌ NO");
+    console.log("[Webhook] Received with raw body:", req.rawBody ? "✅ YES" : "❌ NO");
     handlePaymentWebhook(req, res);
   }
 );
 
-app.post(
-  "/api/candidate/razorpay-webhook-router",
-  express.json({ verify: captureRawBody }),
-  (req, res) => {
-    console.log("[Router] Raw body captured:", req.rawBody ? "✅ YES" : "❌ NO");
-    handlePaymentWebhookRouter(req, res);
-  }
-);
+console.log("[Server] ✅ Webhook route registered (with raw body capture)");
 
 // ============================================
-// MIDDLEWARE (NOW that webhooks are registered)
+// MIDDLEWARE (now that webhook is registered)
 // ============================================
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(fileUpload());  // ✅ For multipart/form-data (file uploads)
+app.use(fileUpload());
 app.use(express.static("public"));
 
 // ============================================
-// PUBLIC: TOOL STATUS (No Auth Required)
+// PUBLIC: TOOL STATUS
 // ============================================
 
 app.get("/api/tool-status", async (req, res) => {
   try {
     console.log("[Tool Status] Checking public tool status...");
 
-    // Get tool_active
     const { data: toolData } = await supabase
       .from("admin_settings")
       .select("setting_value")
       .eq("setting_key", "tool_active")
       .single();
 
-    // Get maintenance message
     const { data: messageData } = await supabase
       .from("admin_settings")
       .select("setting_value")
@@ -124,7 +107,6 @@ app.get("/api/tool-status", async (req, res) => {
     });
   } catch (error) {
     console.error("[Tool Status] Error:", error.message);
-    // Default to active if there's an error (fail-safe)
     res.json({
       active: true,
       maintenanceMode: false,
@@ -133,76 +115,52 @@ app.get("/api/tool-status", async (req, res) => {
   }
 });
 
-console.log("[Server] ✅ Public tool status route registered:");
-console.log("  GET /api/tool-status (no auth required)");
+console.log("[Server] ✅ Public tool status route registered");
 
 // ============================================
-// CANDIDATE ROUTES (Public)
+// CANDIDATE ROUTES
 // ============================================
 
 app.post("/api/candidate/submit", submitResume);
 
-console.log("[Server] ✅ Candidate routes registered:");
-console.log("  POST /api/candidate/submit");
+console.log("[Server] ✅ Candidate routes registered");
 
 // ============================================
-// FEEDBACK ROUTES (NEW)
+// FEEDBACK ROUTES
 // ============================================
 
 app.use("/api/candidate/feedback", feedbackRoutes);
 app.use("/api/admin/feedback-metrics", adminFeedbackMetrics);
 
-console.log("[Server] ✅ Feedback routes registered:");
-console.log("  POST /api/candidate/feedback");
-console.log("  POST /api/candidate/feedback/validate-token");
-console.log("  GET /api/admin/feedback-metrics (auth required)");
+console.log("[Server] ✅ Feedback routes registered");
 
-// ==================== PAYMENT ROUTES ====================
-// Candidate Payment Routes
-// ✅ Note: fileUpload() middleware handles multipart/form-data for razorpay-order
+// ============================================
+// PAYMENT ROUTES
+// ============================================
+
 app.post("/api/candidate/razorpay-order", createRazorpayOrder);
 app.post("/api/candidate/razorpay-verify", verifyPayment);
 
-// ⭐ NOTE: Webhook routes are registered ABOVE (with custom body parser)
-
-// Admin Payment Incidents Routes
+// Admin Payment Routes
 app.get("/api/admin/payment-incidents", getIncidents);
 app.get("/api/admin/payment-incidents/:incidentId", getIncidentDetail);
 app.post("/api/admin/payment-incidents/:incidentId/resolve-trigger", resolveIncidentTriggerAnalysis);
 app.post("/api/admin/payment-incidents/:incidentId/resolve-custom", resolveIncidentCustom);
 app.get("/api/admin/payment-stats", getPaymentStats);
 
-console.log("[Server] ✅ Payment routes registered:");
-console.log("  POST /api/candidate/razorpay-order (with file upload)");
-console.log("  POST /api/candidate/razorpay-verify");
-console.log("  POST /api/candidate/razorpay-webhook ⭐ (custom body parser)");
-console.log("  POST /api/candidate/razorpay-webhook-router ⭐ (custom body parser)");
-console.log("  GET  /api/admin/payment-incidents");
-console.log("  GET  /api/admin/payment-incidents/:incidentId");
-console.log("  POST /api/admin/payment-incidents/:incidentId/resolve-trigger");
-console.log("  POST /api/admin/payment-incidents/:incidentId/resolve-custom");
-console.log("  GET  /api/admin/payment-stats");
+console.log("[Server] ✅ Payment routes registered");
 
 // ============================================
-// ADMIN ROUTES (Protected with Auth)
+// ADMIN ROUTES
 // ============================================
 
 app.use("/api/admin", adminRoutes);
 
-// ✅ NEW ANALYTICS ADMIN ROUTES (FIXED - Destructured Functions)
 app.get("/api/admin/payment-orders", getPaymentOrders);
 app.get("/api/admin/job-titles", jobTitlesRoute);
 app.get("/api/admin/daily-report", dailyReportRoute);
 
-console.log("[Server] ✅ Admin routes registered:");
-console.log("  GET /api/admin/analytics/daily (auth required)");
-console.log("  GET /api/admin/analytics/monthly (auth required)");
-console.log("  GET /api/admin/analytics/stats (auth required)");
-console.log("  GET /api/admin/tool-status (auth required)");
-console.log("  POST /api/admin/tool-status/toggle (auth required)");
-console.log("  GET /api/admin/payment-orders (auth required)");
-console.log("  GET /api/admin/job-titles (auth required)");
-console.log("  GET /api/admin/daily-report (auth required)");
+console.log("[Server] ✅ Admin routes registered");
 
 // ============================================
 // SERVE ADMIN DASHBOARD
@@ -213,8 +171,7 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "admin_dashboard.html"));
 });
 
-console.log("[Server] ✅ Admin dashboard route registered:");
-console.log("  GET /admin");
+console.log("[Server] ✅ Admin dashboard route registered");
 
 // ============================================
 // HOME ROUTES
@@ -233,7 +190,7 @@ app.get("/success.html", (req, res) => {
 });
 
 // ============================================
-// FEEDBACK FORM ROUTE (NEW)
+// FEEDBACK FORM ROUTE
 // ============================================
 
 app.get("/feedback", (req, res) => {
@@ -241,8 +198,7 @@ app.get("/feedback", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "feedback.html"));
 });
 
-console.log("[Server] ✅ Public feedback form route registered:");
-console.log("  GET /feedback");
+console.log("[Server] ✅ Public feedback form route registered");
 
 // ============================================
 // ERROR HANDLING
@@ -257,10 +213,9 @@ app.use((err, req, res, next) => {
 // START SERVER
 // ============================================
 
-
 app.listen(PORT, () => {
   console.log(
-    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n║     Raw Body Capture: Ready ✅ (ULTIMATE)   ║\n╚════════════════════════════════════════════╝\n`
+    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Payment APIs: Ready ✅                   ║\n║     Webhook: Ready ✅                        ║\n╚════════════════════════════════════════════╝\n`
   );
 });
 

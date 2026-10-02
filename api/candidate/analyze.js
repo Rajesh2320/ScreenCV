@@ -15,6 +15,9 @@
 //     not live yet) and the customer is asked to reply with feedback instead.
 //  7. The report now receives the real factor scores from the analysis
 //     (previously an empty object, which made the report show placeholders).
+//  8. Candidate name: uses the name Claude read from the resume, and otherwise
+//     the first line that looks like a name. Previously the first line of the
+//     resume was used whatever it was, e.g. a row of "=====".
 
 const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
@@ -29,6 +32,48 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   }[c]));
+}
+
+// Words that appear in resume headings and job titles but not in names
+const NOT_NAME_WORDS = new Set([
+  "resume", "r\u00e9sum\u00e9", "cv", "curriculum", "vitae", "biodata", "bio-data", "profile", "summary",
+  "objective", "experience", "education", "skills", "contact", "details", "information", "personal",
+  "professional", "career", "about", "work", "employment", "history", "qualifications", "candidate",
+  "name", "unknown", "not", "provided", "mentioned", "specified", "available", "page",
+  "manager", "engineer", "executive", "analyst", "head", "director", "officer", "consultant",
+  "developer", "specialist", "associate", "lead", "senior", "junior", "assistant", "telecaller",
+]);
+
+// True when the text looks like a person's name: letters only (any language),
+// a few words, and not a heading, separator line, email, phone number or link.
+function looksLikeName(value) {
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text.length < 2 || text.length > 60) return false;
+  if (/[@\d]|https?:|www\./i.test(text)) return false;
+  if (!/^[\p{L}\p{M}][\p{L}\p{M} .,'\u2019-]*$/u.test(text)) return false;
+  const words = text.toLowerCase().split(/[\s.,]+/).filter(Boolean);
+  if (words.length > 7) return false;
+  if (words.some((word) => NOT_NAME_WORDS.has(word))) return false;
+  return true;
+}
+
+function pickCandidateName(nameFromAnalysis, resumeText) {
+  if (looksLikeName(nameFromAnalysis)) {
+    return nameFromAnalysis.trim();
+  }
+
+  const lines = String(resumeText || "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^name\s*[:\-]\s*/i, ""))
+    .filter((line) => line.length > 0)
+    .slice(0, 15);
+
+  for (const line of lines) {
+    if (looksLikeName(line)) return line;
+  }
+
+  return "Candidate";
 }
 
 async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobTitle, candidateEmail, feedbackToken, paymentData) {
@@ -53,14 +98,9 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
     }
     console.log(`[ANALYZE] Claude API SUCCESS. Score: ${overallScore}`);
 
-    // Extract candidate name from resume
-    let candidateName = "Candidate";
-    if (resumeText && resumeText.length > 0) {
-      const firstLine = resumeText.split('\n')[0].trim();
-      if (firstLine.length > 0 && firstLine.length < 100 && !firstLine.includes('@')) {
-        candidateName = firstLine;
-      }
-    }
+    // Candidate name: Claude's reading of the resume first, then the first
+    // line of the resume that actually looks like a name
+    const candidateName = pickCandidateName(analysisData.candidate_name, resumeText);
 
     console.log(`[ANALYZE] Candidate name: ${candidateName}`);
 

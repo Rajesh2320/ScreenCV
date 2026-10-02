@@ -1,267 +1,521 @@
-// screencv/api/candidate/analyze.js
-// Analyze resume with enhanced recruiter logic + store all costs & new fields
-// ✅ CORRECTED: Returns status and rethrows errors for proper error handling
+/**
+ * API Route: /api/candidate/analyze
+ * Purpose: Process resume analysis + send email report
+ * ✅ REBRANDED TO BIOSYNC
+ */
 
-const { supabase } = require("../../lib/supabase-client");
-const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
-const { generateRecruiterReportHTML, replaceFeedbackToken } = require("../../lib/html-generator-recruiter");
-const { sendEmailWithPDF } = require("../../lib/nodemailer-sender");
-const { FEEDBACK_BASE_URL } = require("../../lib/constants");
+const { createClient } = require('@supabase/supabase-js');
+const path = require('path');
+const fs = require('fs');
+const Anthropic = require('@anthropic-ai/sdk');
 
-async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobTitle, candidateEmail, feedbackToken, paymentData) {
-  try {
-    console.log(`[Analyze] Starting analysis for submission ${submissionId}...`);
-    if (paymentData) {
-      console.log(`[Analyze] Payment - Order: ${paymentData.orderId}, Payment: ${paymentData.paymentId}`);
-    }
+const generateHTML = require('../../lib/html-generator-recruiter');
+const { sendEmailWithPDF } = require('../../lib/nodemailer-sender');
+const { PDFDocument, PDFPage, PDFFont } = require('pdfkit');
+const { streamToBuffer } = require('pdfkit');
 
-    // Call enhanced Claude scoring with ALL NEW FIELDS
-    const analysisResult = await generateRecruiterAnalysis(resumeText, jobDescription);
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
-    if (!analysisResult.success) {
-      console.error("[Analyze] Analysis failed:", analysisResult.error);
-      throw new Error(`Analysis failed: ${analysisResult.error}`);
-    }
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY
+});
 
-    const analysisData = analysisResult.data;
-    console.log(`[Analyze] ✅ Analysis complete. Score: ${analysisData.overall_score || analysisData.os}/100`);
-
-    // Extract all fields - map abbreviated keys to full names
-    // ✅ CANDIDATE NAME FROM CLAUDE (more reliable than parsing resume)
-    const candidateName = analysisData.candidate_name || analysisData.cn || "Candidate";
-    const executiveSummary = analysisData.executive_summary || analysisData.es;
-    const jobMatchAnalysis = analysisData.job_match_analysis || analysisData.jma;
-    const experienceAssessment = analysisData.experience_assessment || analysisData.exp;
-    const careerProgression = analysisData.career_progression || analysisData.cp;
-    const achievementScore = analysisData.achievement_score || analysisData.as;
-    const scoringLogic = analysisData.scoring_logic;
-    const matchCategory = analysisData.match_category;
-    const categoryEvidence = analysisData.category_evidence;
-    const improvements = analysisData.improvements;
-    const skills = analysisData.skills || analysisData.sk;
-    const concerns = analysisData.concerns || analysisData.con;
-    const interviewQuestions = analysisData.interview_questions || analysisData.iq;
-    const interviewRecommendation = analysisData.interview_recommendation || analysisData.ir || "CONSIDER";
-    const overallScore = analysisData.overall_score || analysisData.os;
-
-    console.log(`[Analyze] Candidate name from Claude: ${candidateName}`);
-
-    // Handle skills mapping (abbreviated or full names)
-    let skillsData = skills;
-    if (skills && skills.s) {
-      // Abbreviated format from Claude
-      skillsData = {
-        strong: skills.s || [],
-        moderate: skills.m || [],
-        weak: skills.w || []
-      };
-    } else if (skills && !skills.strong) {
-      // Neither format found, use defaults
-      skillsData = { strong: [], moderate: [], weak: [] };
-    }
-
-    // Extract token costs from analysis
-    const analysisTokens = analysisData.tokens || {};
-    const inputTokens = analysisTokens.input || 0;
-    const outputTokens = analysisTokens.output || 0;
-    const analysisTokensTotal = analysisTokens.total || inputTokens + outputTokens;
-    const costUSD = analysisTokens.costUsd || 0;
-    const costINR = analysisTokens.costInr || 0;
-
-    console.log(`[Analyze] Tokens - Input: ${inputTokens}, Output: ${outputTokens}, Total: ${analysisTokensTotal}`);
-    console.log(`[Analyze] Cost - USD: $${costUSD.toFixed(6)}, INR: ₹${costINR.toFixed(2)}`);
-
-    // Generate HTML report with ALL NEW FIELDS
-    let htmlContent = await generateRecruiterReportHTML({
-      candidateName,
-      jobTitle,
-      overallScore,
-      executiveSummary,
-      jobMatchAnalysis,
-      experienceAssessment,
-      skills: skillsData,
-      careerProgression,
-      achievementScore,
-      scoringLogic,
-      matchCategory,
-      categoryEvidence,
-      scoringBreakdown: analysisData.scoring_breakdown || {},
-      top5Improvements: improvements || [],
-      concerns,
-      interviewQuestions,
-      interviewRecommendation,
-    });
-
-    // ✅ INJECT FEEDBACK TOKEN INTO EMAIL HTML
-    if (feedbackToken) {
-      htmlContent = replaceFeedbackToken(htmlContent, feedbackToken);
-      console.log("[Analyze] Feedback token injected into email");
-    }
-
-    // Store review in database with ALL NEW FIELDS
-    console.log("[Analyze] Storing review in database...");
-    const { data: reviewData, error: reviewError } = await supabase
-      .from("candidate_reviews")
-      .insert([
-        {
-          submission_id: submissionId,
-          email: candidateEmail,
-          candidate_name: candidateName,
-          resume_text: resumeText,
-          feedback_token: feedbackToken,
-          job_description: jobDescription,
-          executive_summary: executiveSummary,
-          experience_assessment: experienceAssessment,
-          career_progression: careerProgression,
-          skills_strong: skillsData.strong || [],
-          skills_moderate: skillsData.moderate || [],
-          skills_weak: skillsData.weak || [],
-          achievement_score: achievementScore,
-          scoring_logic: scoringLogic,
-          match_category: matchCategory,
-          category_evidence: categoryEvidence,
-          improvements: JSON.stringify(improvements || []),
-          job_match_analysis: JSON.stringify(jobMatchAnalysis || []),
-          concerns: concerns || [],
-          interview_questions: interviewQuestions || [],
-          score: overallScore,
-          overall_score: overallScore,
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          analysis_cost_usd: costUSD,
-          analysis_cost_inr: costINR,
-          html_report: htmlContent,
-          language: "English",
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select();
-
-    if (reviewError) {
-      console.error("[Analyze] Database error:", reviewError);
-      throw new Error("Failed to store review");
-    }
-
-    const reviewId = reviewData[0]?.id;
-    console.log(`[Analyze] ✅ Review stored with ID: ${reviewId}`);
-
-    // ✅ SEND EMAIL WITH HTML ATTACHMENT
+/**
+ * Convert HTML string to PDF Buffer
+ * ✅ OPTIMIZED FOR VERCEL (serverless)
+ */
+async function htmlToPDF(htmlContent, candidateName, jobTitle) {
+  return new Promise((resolve, reject) => {
     try {
-      console.log(`[Analyze] ========================================`);
-      console.log(`[Analyze] Email sending pipeline starting...`);
-      console.log(`[Analyze] Recipient: ${candidateEmail}`);
-      console.log(`[Analyze] Subject: Your ScreenCV Report - ${jobTitle} Analysis`);
-      console.log(`[Analyze] HTML content length: ${htmlContent.length} chars`);
-      console.log(`[Analyze] ========================================`);
-      
-      // Create custom email body
-      // ✅ Build email with payment tracking details
-      const paymentDetails = paymentData ? `
-        <div style="background: #f0f4f8; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-          <p style="font-size: 12px; color: #555; margin: 5px 0;"><strong>Payment Confirmation:</strong></p>
-          <p style="font-size: 12px; color: #555; margin: 5px 0;">Order ID: <code style="background: #fff; padding: 2px 5px; border-radius: 3px;">${paymentData.orderId}</code></p>
-          <p style="font-size: 12px; color: #555; margin: 5px 0;">Payment ID: <code style="background: #fff; padding: 2px 5px; border-radius: 3px;">${paymentData.paymentId}</code></p>
-          <p style="font-size: 12px; color: #555; margin: 5px 0;">Amount: <strong>₹${paymentData.amount}</strong></p>
-          <p style="font-size: 12px; color: #555; margin: 5px 0;">Status: <strong style="color: #10b981;">✅ Confirmed</strong></p>
-        </div>
-      ` : '';
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const buffers = [];
 
-      const emailBody = `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
-          <p style="font-size: 16px; margin-bottom: 20px;">Hi,</p>
-          
-          <p style="font-size: 14px; margin-bottom: 20px;">
-            Thank you for using the <strong>ScreenCV</strong> services.
-          </p>
-          
-          ${paymentDetails}
-          
-          <p style="font-size: 14px; margin-bottom: 20px;">
-            Attached is the HTML file that can be reviewed and downloaded to help you prepare for this job interview.
-          </p>
-          
-          <p style="font-size: 14px; margin-bottom: 20px;">
-            Please feel free to <a href="${FEEDBACK_BASE_URL}/feedback?token=${feedbackToken}" style="color: #667eea; text-decoration: none; font-weight: bold;">rate us</a> and also provide us with your valuable feedback.
-          </p>
-          
-          <p style="font-size: 14px; margin-bottom: 30px;">
-            Regards,<br>
-            <strong>Team ScreenCV</strong>
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
-          
-          <p style="font-size: 12px; color: #666; text-align: center;">
-            © 2026 ScreenCV. All rights reserved.
-          </p>
-        </div>
-      `;
-      
-      // ✅ Build email subject with payment tracking
-      const emailSubject = paymentData 
-        ? `ScreenCV Report - ${jobTitle} [Order: ${paymentData.orderId} | Payment: ${paymentData.paymentId}]`
-        : `Your ScreenCV Report - ${jobTitle} Analysis`;
-      
-      // Convert HTML report to buffer for attachment
-      const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
-      const fileName = `ScreenCV_Analysis_${candidateName.replace(/\s+/g, '_')}_${new Date().getTime()}.html`;
-      
-      await sendEmailWithPDF({
-        to: candidateEmail,
-        subject: emailSubject,
-        html: emailBody,
-        htmlBuffer: htmlBuffer,
-        htmlFilename: fileName
+      doc.on('data', (chunk) => buffers.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+
+      // Parse HTML to extract text and basic formatting
+      const lines = htmlContent
+        .split('<br>')
+        .map(line => {
+          return line
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, '&')
+            .trim();
+        })
+        .filter(line => line.length > 0);
+
+      // Add title
+      doc.fontSize(16).font('Helvetica-Bold').text(`${jobTitle} - Resume Analysis`, { align: 'center' });
+      doc.moveDown();
+      doc.fontSize(10).font('Helvetica').text(`Candidate: ${candidateName}`, { align: 'center' });
+      doc.moveDown();
+
+      // Add content
+      lines.forEach((line, index) => {
+        if (line.includes('Score:') || line.includes('SCORE')) {
+          doc.fontSize(14).font('Helvetica-Bold').text(line);
+        } else if (line.includes('•')) {
+          doc.fontSize(10).font('Helvetica').text(line, { indent: 20 });
+        } else if (line.length < 50) {
+          doc.fontSize(11).font('Helvetica-Bold').text(line);
+        } else {
+          doc.fontSize(10).font('Helvetica').text(line);
+        }
+        doc.moveDown(0.3);
       });
 
-      console.log("[Analyze] ✅ EMAIL SENT SUCCESSFULLY");
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
 
-      // ✅ UPDATE SUBMISSION: Mark email as sent + save candidate name
-      const { error: updateError } = await supabase
-        .from("candidate_submissions")
-        .update({
-          email_sent: true,
-          candidate_name: candidateName,  // ✅ ADD CANDIDATE NAME TO SUBMISSIONS TABLE
-          feedback_token: feedbackToken,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", submissionId);
+/**
+ * Generate payment confirmation email
+ * ✅ REBRANDED TO BIOSYNC
+ */
+function getPaymentConfirmationEmail(candidateName, jobTitle, orderId, amountPaid) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 600px;
+      margin: 20px auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+    .content {
+      padding: 30px;
+    }
+    .section {
+      margin-bottom: 20px;
+    }
+    .success-box {
+      background: #e8f5e9;
+      border-left: 4px solid #4caf50;
+      padding: 15px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+    .success-box strong {
+      color: #2e7d32;
+    }
+    .details-box {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+    .label {
+      font-weight: 600;
+      color: #666;
+    }
+    .value {
+      color: #333;
+    }
+    .footer {
+      background: #f5f5f5;
+      padding: 20px 30px;
+      text-align: center;
+      font-size: 12px;
+      color: #999;
+      border-top: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>✓ Payment Successful</h1>
+    </div>
 
-      if (updateError) {
-        console.error("[Analyze] ❌ Failed to update submission:", updateError);
-      } else {
-        console.log("[Analyze] ✅ Submission updated - email_sent=true, candidate_name saved");
-      }
+    <div class="content">
+      <p>Hi <strong>${candidateName}</strong>,</p>
 
-      console.log("[Analyze] ✅ Submission marked as completed");
-    } catch (emailError) {
-      console.error("[Analyze] ✗ EMAIL SENDING FAILED!");
-      console.error("[Analyze] Error type:", emailError.constructor.name);
-      console.error("[Analyze] Error message:", emailError.message);
-      console.error("[Analyze] Error details:", emailError);
-      console.error("[Analyze] Note: Analysis was successful, but candidate will not receive email");
-      // Don't fail the entire request if email fails
+      <div class="success-box">
+        <strong>✓ Thank you for using the <strong>BIOSYNC</strong> services.</strong> Your payment has been received and your analysis is being processed.
+      </div>
+
+      <div class="section">
+        <h2 style="color: #667eea; font-size: 16px; margin-top: 0;">Order Details</h2>
+        <div class="details-box">
+          <div class="detail-row">
+            <span class="label">Order ID:</span>
+            <span class="value">#${orderId}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">Job Title:</span>
+            <span class="value">${jobTitle}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">Amount Paid:</span>
+            <span class="value">₹${amountPaid}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">Status:</span>
+            <span class="value" style="color: #4caf50; font-weight: 600;">Completed</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <p style="margin-bottom: 12px;">Your analysis report will be available shortly. You'll receive another email with:</p>
+        <ul style="margin: 0; padding-left: 20px; color: #555;">
+          <li>Detailed resume analysis</li>
+          <li>Match score against job description</li>
+          <li>Strengths and areas for improvement</li>
+          <li>Key keywords to emphasize</li>
+          <li>Interview preparation tips</li>
+        </ul>
+      </div>
+
+      <div class="section" style="background: #f0f7ff; border-left: 4px solid #667eea; padding: 15px; border-radius: 4px;">
+        <p style="margin: 0; color: #333;">
+          <strong>📧 Check your inbox (and spam folder)</strong> for your detailed BIOSYNC Report within the next few minutes.
+        </p>
+      </div>
+
+      <p style="color: #999; font-size: 13px; margin-top: 20px;">
+        Have questions? Reply to this email or visit our support page.
+      </p>
+    </div>
+
+    <div class="footer">
+      <p style="margin: 0;"><strong>Team BIOSYNC</strong></p>
+      <p style="margin: 5px 0 0 0;">© 2026 BIOSYNC. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+/**
+ * Main API Handler
+ */
+async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { submission_id, email, candidateName, jobTitle } = req.body;
+
+  if (!submission_id || !email || !candidateName || !jobTitle) {
+    return res.status(400).json({
+      error: 'Missing required fields',
+      required: ['submission_id', 'email', 'candidateName', 'jobTitle']
+    });
+  }
+
+  try {
+    console.log(`\n[ANALYZE] Starting analysis for submission: ${submission_id}`);
+
+    // 1. Fetch submission from database
+    console.log('[ANALYZE] Fetching submission from database...');
+    const { data: submission, error: fetchError } = await supabase
+      .from('candidate_submissions')
+      .select('*')
+      .eq('id', submission_id)
+      .single();
+
+    if (fetchError || !submission) {
+      console.error('[ANALYZE] Submission fetch error:', fetchError);
+      return res.status(404).json({ error: 'Submission not found' });
     }
 
-    console.log("[Analyze] ✅ Analysis pipeline complete");
+    // 2. Send payment confirmation email
+    console.log('[ANALYZE] Sending payment confirmation email...');
+    const confirmationEmail = getPaymentConfirmationEmail(
+      candidateName,
+      jobTitle,
+      submission.order_id || 'N/A',
+      '99'
+    );
 
-    // ✅ RETURN SUCCESS STATUS
-    return {
+    try {
+      await sendEmailWithPDF({
+        to: email,
+        subject: `BIOSYNC Report - ${jobTitle} [Order: ${submission.order_id || submission_id.slice(0, 8)}]`,
+        html: confirmationEmail
+      });
+      console.log(`[ANALYZE] ✓ Payment confirmation email sent to ${email}`);
+    } catch (emailError) {
+      console.error('[ANALYZE] Failed to send confirmation email:', emailError.message);
+      // Continue processing even if email fails
+    }
+
+    // 3. Fetch resume & job description files
+    console.log('[ANALYZE] Fetching files from Supabase Storage...');
+    const resumePath = submission.resume_file_path;
+    const jobDescPath = submission.job_description_file_path;
+
+    if (!resumePath || !jobDescPath) {
+      return res.status(400).json({
+        error: 'Resume or job description not found',
+        has_resume: !!resumePath,
+        has_job_desc: !!jobDescPath
+      });
+    }
+
+    // Get file URLs from Supabase Storage
+    const { data: resumeData, error: resumeError } = await supabase
+      .storage
+      .from('candidate-uploads')
+      .download(resumePath);
+
+    const { data: jobDescData, error: jobDescError } = await supabase
+      .storage
+      .from('candidate-uploads')
+      .download(jobDescPath);
+
+    if (resumeError || jobDescError) {
+      console.error('[ANALYZE] File download error:', { resumeError, jobDescError });
+      return res.status(400).json({ error: 'Failed to download files' });
+    }
+
+    console.log('[ANALYZE] Files downloaded successfully');
+
+    // 4. Extract text from files
+    console.log('[ANALYZE] Extracting text from files...');
+    const fileExtraction = require('../../lib/file-extraction');
+    const resumeText = await fileExtraction.extractText(resumeData, resumePath);
+    const jobDescText = await fileExtraction.extractText(jobDescData, jobDescPath);
+
+    if (!resumeText || !jobDescText) {
+      return res.status(400).json({ error: 'Failed to extract text from files' });
+    }
+
+    console.log(`[ANALYZE] Resume text: ${resumeText.length} chars, Job desc: ${jobDescText.length} chars`);
+
+    // 5. Call Claude API for analysis
+    console.log('[ANALYZE] Calling Claude API for analysis...');
+    const analysisPrompt = `
+Analyze this resume against the job description. Provide a detailed analysis.
+
+RESUME:
+${resumeText}
+
+JOB DESCRIPTION:
+${jobDescText}
+
+Provide your analysis in this exact format:
+SCORE: [0-100]
+MATCH_PERCENTAGE: [0-100]%
+
+STRENGTHS:
+- [strength 1]
+- [strength 2]
+- [strength 3]
+
+IMPROVEMENTS:
+- [improvement 1]
+- [improvement 2]
+- [improvement 3]
+
+KEYWORDS:
+- keyword1
+- keyword2
+- keyword3
+
+INTERVIEW_QUESTIONS:
+- question1
+- question2
+- question3
+
+RESUME_GAPS:
+- gap1
+- gap2
+`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 2000,
+      messages: [
+        { role: 'user', content: analysisPrompt }
+      ]
+    });
+
+    const analysisText = message.content[0].type === 'text' ? message.content[0].text : '';
+    console.log('[ANALYZE] ✓ Claude analysis received');
+
+    // 6. Parse analysis response
+    console.log('[ANALYZE] Parsing analysis response...');
+    const parseAnalysis = require('../../lib/claude-scoring');
+    const analysis = parseAnalysis.parseAnalysisResponse(analysisText);
+
+    // 7. Generate HTML report
+    console.log('[ANALYZE] Generating HTML report...');
+    const htmlReport = generateHTML.generateRecruitersAnalysisHTML({
+      candidateName: candidateName,
+      jobTitle: jobTitle,
+      score: analysis.score,
+      matchPercentage: analysis.matchPercentage,
+      strengths: analysis.strengths,
+      improvements: analysis.improvements,
+      keywords: analysis.keywords,
+      interviewQuestions: analysis.interviewQuestions,
+      resumeGaps: analysis.resumeGaps,
+      analysis: analysisText
+    });
+
+    // 8. Convert HTML to PDF
+    console.log('[ANALYZE] Converting HTML to PDF...');
+    const pdfBuffer = await htmlToPDF(htmlReport, candidateName, jobTitle);
+    console.log(`[ANALYZE] PDF generated: ${pdfBuffer.length} bytes`);
+
+    // 9. Save report to database
+    console.log('[ANALYZE] Saving report to database...');
+    const { data: reportData, error: reportError } = await supabase
+      .from('candidate_reports')
+      .insert({
+        submission_id: submission_id,
+        score: analysis.score,
+        match_percentage: analysis.matchPercentage,
+        strengths: analysis.strengths,
+        improvements: analysis.improvements,
+        keywords: analysis.keywords,
+        analysis_text: analysisText,
+        html_report: htmlReport
+      })
+      .select()
+      .single();
+
+    if (reportError) {
+      console.error('[ANALYZE] Report save error:', reportError);
+      return res.status(500).json({ error: 'Failed to save report' });
+    }
+
+    console.log(`[ANALYZE] ✓ Report saved with ID: ${reportData.id}`);
+
+    // 10. Send analysis email
+    console.log('[ANALYZE] Sending analysis email...');
+    const analysisEmailHTML = require('../../lib/nodemailer-sender').getAnalysisEmailTemplate({
+      jobTitle: jobTitle,
+      score: analysis.score,
+      strengths: analysis.strengths,
+      improvements: analysis.improvements,
+      keywords: analysis.keywords,
+      matchPercentage: analysis.matchPercentage,
+      candidateName: candidateName
+    });
+
+    try {
+      await sendEmailWithPDF({
+        to: email,
+        subject: `Your BIOSYNC Report - ${jobTitle} Analysis`,
+        html: analysisEmailHTML,
+        pdfBuffer: pdfBuffer,
+        pdfFilename: `BIOSYNC_Analysis_${candidateName.replace(/\s+/g, '_')}_${Date.now()}.pdf`,
+        htmlBuffer: Buffer.from(htmlReport, 'utf-8'),
+        htmlFilename: `BIOSYNC_Analysis_${candidateName.replace(/\s+/g, '_')}_${Date.now()}.html`
+      });
+      console.log(`[ANALYZE] ✓ Analysis email sent to ${email}`);
+    } catch (emailError) {
+      console.error('[ANALYZE] Failed to send analysis email:', emailError.message);
+      // Don't fail the analysis if email fails
+    }
+
+    // 11. Update submission status
+    console.log('[ANALYZE] Updating submission status...');
+    const { error: updateError } = await supabase
+      .from('candidate_submissions')
+      .update({
+        analysis_status: 'completed',
+        analysis_completed_at: new Date().toISOString(),
+        report_id: reportData.id
+      })
+      .eq('id', submission_id);
+
+    if (updateError) {
+      console.error('[ANALYZE] Status update error:', updateError);
+    }
+
+    // 12. Log AI costs
+    console.log('[ANALYZE] Logging AI costs...');
+    const inputTokens = message.usage.input_tokens;
+    const outputTokens = message.usage.output_tokens;
+    const estimatedCostINR = (inputTokens * 0.00003 + outputTokens * 0.00015) * 100; // Approximate
+
+    const { error: costError } = await supabase
+      .from('ai_costs_log')
+      .insert({
+        submission_id: submission_id,
+        review_id: reportData.id,
+        model: 'claude-3-5-sonnet-20241022',
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+        estimated_cost_inr: estimatedCostINR
+      });
+
+    if (costError) {
+      console.error('[ANALYZE] Cost logging error:', costError);
+    }
+
+    console.log(`[ANALYZE] ✅ Analysis complete!`);
+    console.log(`[ANALYZE] - Score: ${analysis.score}/100`);
+    console.log(`[ANALYZE] - Tokens: ${inputTokens} input, ${outputTokens} output`);
+    console.log(`[ANALYZE] - Cost: ₹${estimatedCostINR.toFixed(2)}`);
+
+    return res.status(200).json({
       success: true,
-      message: "Analysis completed successfully",
-      submissionId: submissionId,
-      reviewId: reviewId,
-    };
+      message: 'Analysis completed and emails sent',
+      report_id: reportData.id,
+      score: analysis.score,
+      matchPercentage: analysis.matchPercentage,
+      aiCost: {
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        estimatedCostINR: estimatedCostINR.toFixed(2)
+      }
+    });
 
   } catch (error) {
-    console.error("[Analyze] ❌ Unexpected error:", error);
-    console.error("[Analyze] Error type:", error.constructor.name);
-    console.error("[Analyze] Error message:", error.message);
-    console.error("[Analyze] Full error:", error);
-    
-    // ✅ RETHROW error so caller knows analysis failed
-    throw error;
+    console.error('[ANALYZE] Unexpected error:', error);
+    return res.status(500).json({
+      error: 'Analysis failed',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 
-module.exports = { analyzeResumeVsJob };
+module.exports = handler;

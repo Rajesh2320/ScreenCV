@@ -41,41 +41,42 @@ const dailyReportRoute = require("./api/admin/daily-report");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+console.log("[Server] Starting ScreenCV server...");
+
 // ============================================
-// ⭐ CRITICAL: Capture raw body for webhooks
-// This MUST run BEFORE express.json()
+// ⭐ CRITICAL: Register WEBHOOK routes FIRST
+// with express.raw() to capture raw body
+// This MUST happen BEFORE express.json()
 // ============================================
 
-app.use((req, res, next) => {
-  // Check if this is a webhook route
-  if (req.path === "/api/candidate/razorpay-webhook" || 
-      req.path === "/api/candidate/razorpay-webhook-router") {
-    
-    let rawBody = "";
-    
-    req.on("data", (chunk) => {
-      rawBody += chunk.toString();
-    });
-    
-    req.on("end", () => {
-      req.rawBody = rawBody;
-      next();
-    });
-  } else {
-    next();
+console.log("[Server] Registering webhook routes (with raw body)...");
+
+app.post(
+  "/api/candidate/razorpay-webhook",
+  express.raw({ type: "application/json" }),
+  (req, res) => {
+    req.rawBody = req.body.toString();
+    handlePaymentWebhook(req, res);
   }
-});
+);
+
+app.post(
+  "/api/candidate/razorpay-webhook-router",
+  express.raw({ type: "application/json" }),
+  (req, res) => {
+    req.rawBody = req.body.toString();
+    handlePaymentWebhookRouter(req, res);
+  }
+);
 
 // ============================================
-// MIDDLEWARE (now that raw body is captured)
+// MIDDLEWARE (NOW that webhooks are registered)
 // ============================================
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());  // ✅ For multipart/form-data (file uploads)
 app.use(express.static("public"));
-
-console.log("[Server] Starting ScreenCV server...");
 
 // ============================================
 // PUBLIC: TOOL STATUS (No Auth Required)
@@ -151,21 +152,7 @@ console.log("  GET /api/admin/feedback-metrics (auth required)");
 app.post("/api/candidate/razorpay-order", createRazorpayOrder);
 app.post("/api/candidate/razorpay-verify", verifyPayment);
 
-// ⭐ WEBHOOK ROUTES (raw body already captured by middleware above)
-app.post(
-  "/api/candidate/razorpay-webhook",
-  (req, res) => {
-    handlePaymentWebhook(req, res);
-  }
-);
-
-// ⭐ NEW: ROUTING WEBHOOK (Handles both staging + production)
-app.post(
-  "/api/candidate/razorpay-webhook-router",
-  (req, res) => {
-    handlePaymentWebhookRouter(req, res);
-  }
-);
+// ⭐ NOTE: Webhook routes are registered ABOVE (before express.json())
 
 // Admin Payment Incidents Routes
 app.get("/api/admin/payment-incidents", getIncidents);
@@ -177,8 +164,8 @@ app.get("/api/admin/payment-stats", getPaymentStats);
 console.log("[Server] ✅ Payment routes registered:");
 console.log("  POST /api/candidate/razorpay-order (with file upload)");
 console.log("  POST /api/candidate/razorpay-verify");
-console.log("  POST /api/candidate/razorpay-webhook (signature verified)");
-console.log("  POST /api/candidate/razorpay-webhook-router ⭐ (NEW: Routing webhook - signature verified)");
+console.log("  POST /api/candidate/razorpay-webhook ⭐ (registered early with raw body)");
+console.log("  POST /api/candidate/razorpay-webhook-router ⭐ (registered early with raw body)");
 console.log("  GET  /api/admin/payment-incidents");
 console.log("  GET  /api/admin/payment-incidents/:incidentId");
 console.log("  POST /api/admin/payment-incidents/:incidentId/resolve-trigger");
@@ -262,7 +249,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(
-    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n║     Raw Body Capture: Ready ✅ (FIXED)      ║\n╚════════════════════════════════════════════╝\n`
+    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n║     Raw Body Capture: Ready ✅ (FINAL FIX)  ║\n╚════════════════════════════════════════════╝\n`
   );
 });
 

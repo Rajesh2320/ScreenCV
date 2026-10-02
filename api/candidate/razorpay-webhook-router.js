@@ -1,5 +1,7 @@
 // screencv/api/candidate/razorpay-webhook-router.js
-// ROUTING WEBHOOK - Handles payments from BOTH staging (CVSCREEN) and production (CVSCREEN-PRODUCTION)
+// ROUTING WEBHOOK - Handles ALL Razorpay webhook events with DUAL database support
+// FLEXIBLE: Works with both raw body AND parsed JSON body
+
 
 const crypto = require("crypto");
 const { supabase: supabase_staging } = require("../../lib/supabase-client");
@@ -20,6 +22,10 @@ function verifyWebhookSignature(body, signature) {
     .update(body)
     .digest("hex");
 
+  console.log(`[Router] Signature check:
+    Expected: ${expectedSignature.substring(0, 20)}...
+    Received: ${signature ? signature.substring(0, 20) + "..." : "NONE"}`);
+
   return expectedSignature === signature;
 }
 
@@ -27,11 +33,31 @@ function verifyWebhookSignature(body, signature) {
 async function handlePaymentWebhookRouter(req, res) {
   try {
     const signature = req.headers["x-razorpay-signature"];
-    const body = req.rawBody;
+    
+    console.log("[Router] Webhook received");
+    console.log("[Router] Signature header:", signature ? "✅ Present" : "❌ Missing");
+    console.log("[Router] req.rawBody:", req.rawBody ? `✅ Present (${req.rawBody.length} bytes)` : "❌ Missing");
+    console.log("[Router] req.body:", req.body ? "✅ Present (parsed)" : "❌ Missing");
 
-    if (!signature || !body) {
-      console.error("[Router] Missing signature or body");
+    // ⭐ FLEXIBLE: Get raw body from either rawBody OR reconstruct from parsed body
+    let body = null;
+
+    if (req.rawBody) {
+      // If we have raw body, use it
+      body = req.rawBody;
+      console.log("[Router] Using req.rawBody for signature verification");
+    } else if (req.body) {
+      // If only parsed body available, reconstruct it
+      body = JSON.stringify(req.body);
+      console.log("[Router] Reconstructing body from req.body (JSON.stringify)");
+    } else {
+      console.error("[Router] ❌ Missing both rawBody and body!");
       return res.status(400).json({ error: "Missing webhook data" });
+    }
+
+    if (!signature) {
+      console.error("[Router] ❌ Missing x-razorpay-signature header");
+      return res.status(400).json({ error: "Missing signature" });
     }
 
     // Verify signature
@@ -44,12 +70,19 @@ async function handlePaymentWebhookRouter(req, res) {
 
     console.log("[Router] ✅ Signature verified");
 
-    const event = JSON.parse(body);
+    // Parse the body if it's still a string
+    let event;
+    if (typeof body === "string") {
+      event = JSON.parse(body);
+    } else {
+      event = body;
+    }
+
     const payment = event.payload.payment.entity;
     const order = event.payload.order.entity;
 
     console.log(
-      `[Router] Event: ${event.event}, Order: ${order.id}, Status: ${payment.status}`
+      `[Router] Event: ${event.event}, Order: ${order.id}, Payment: ${payment.id}, Status: ${payment.status}`
     );
 
     // ============================================
@@ -72,7 +105,9 @@ async function handlePaymentWebhookRouter(req, res) {
           description: `Order not found in staging database`,
           status: "unresolved",
         });
-      } catch (e) {}
+      } catch (e) {
+        console.warn("[Router] Failed to log to staging:", e.message);
+      }
 
       try {
         await supabase_production.from("payment_incidents").insert({
@@ -85,7 +120,9 @@ async function handlePaymentWebhookRouter(req, res) {
           description: `Order not found in production database`,
           status: "unresolved",
         });
-      } catch (e) {}
+      } catch (e) {
+        console.warn("[Router] Failed to log to production:", e.message);
+      }
 
       return res.json({
         success: false,
@@ -142,7 +179,7 @@ async function handlePaymentWebhookRouter(req, res) {
       );
     }
 
-    console.log(`[Router] Ignoring event: ${event.event}`);
+    console.log(`[Router] ℹ️ Ignoring event: ${event.event}`);
     return res.json({ success: true });
 
   } catch (error) {
@@ -294,7 +331,7 @@ async function handleCapturedPayment(
           paymentId: payment.id,
           amount: amountINR,
           timestamp: new Date().toISOString(),
-          app: app, // Pass app context
+          app: app,
         }
       );
 

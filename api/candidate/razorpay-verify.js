@@ -4,8 +4,9 @@
 // CHANGES
 //  1. Analysis is handed to waitUntil() so Vercel keeps the function alive
 //     until it finishes (previously the function froze once res.json() was sent).
-//  2. A failed analysis is logged as a failure and recorded in payment_incidents,
-//     instead of being logged as "completed ... score: undefined".
+//  2. A failed analysis, or a report that could not be emailed, is logged as a
+//     failure and recorded in payment_incidents, instead of being logged as
+//     "completed ... score: undefined".
 //  3. A repeated verify call for an already-verified payment returns success
 //     without inserting a second payment row or running the analysis again.
 //  4. The order must belong to the submission it is being applied to.
@@ -40,6 +41,7 @@ function signaturesMatch(expected, received) {
 async function runAnalysis(dbSubmission, paymentData) {
   const startedAt = Date.now();
   let failure = null;
+  let incidentType = "ANALYSIS_FAILED";
 
   try {
     const result = await analyzeResumeVsJob(
@@ -61,6 +63,14 @@ async function runAnalysis(dbSubmission, paymentData) {
         `[Verify] ✅ Analysis pipeline completed for submission ${dbSubmission.id}, ` +
           `score: ${result.score} (${Date.now() - startedAt}ms)`
       );
+
+      // The report exists but never reached the customer.
+      if (result.emailSent === false) {
+        incidentType = "REPORT_EMAIL_FAILED";
+        failure =
+          `Report saved (review ${result.reviewId}) but email not sent: ` +
+          (result.emailError || "unknown error");
+      }
     }
   } catch (err) {
     failure = (err && err.message) || String(err);
@@ -69,24 +79,25 @@ async function runAnalysis(dbSubmission, paymentData) {
   if (!failure) return;
 
   console.error(
-    `[Verify] ❌ Analysis pipeline FAILED for submission ${dbSubmission.id} ` +
+    `[Verify] ❌ ${incidentType} for submission ${dbSubmission.id} ` +
       `after ${Date.now() - startedAt}ms: ${failure}`
   );
 
-  // The customer has paid but has no analysis: record it so it can be re-run.
+  // The customer has paid but has no report: record it so it can be followed up.
   try {
-    await supabase.from("payment_incidents").insert({
-      incident_type: "ANALYSIS_FAILED",
+    const { error: incidentError } = await supabase.from("payment_incidents").insert({
+      incident_type: incidentType,
       submission_id: dbSubmission.id,
       razorpay_payment_id: paymentData.paymentId,
       razorpay_order_id: paymentData.orderId,
       email: dbSubmission.email,
       amount: paymentData.amount,
-      description: `Payment captured but analysis failed: ${failure}`,
+      description: `Payment captured but customer has no report: ${failure}`,
       status: "unresolved",
     });
+    if (incidentError) throw incidentError;
   } catch (incidentErr) {
-    console.error("[Verify] Could not record ANALYSIS_FAILED incident:", incidentErr);
+    console.error(`[Verify] Could not record ${incidentType} incident:`, incidentErr);
   }
 }
 

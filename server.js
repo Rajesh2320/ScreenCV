@@ -44,27 +44,38 @@ const PORT = process.env.PORT || 3000;
 console.log("[Server] Starting ScreenCV server...");
 
 // ============================================
-// ⭐ CRITICAL: Register WEBHOOK routes FIRST
-// with express.raw() to capture raw body
+// ⭐ CRITICAL: Custom body parser for webhooks
+// This captures RAW body before any JSON parsing
+// ============================================
+
+const captureRawBody = (req, res, buf, encoding) => {
+  if (buf && buf.length) {
+    req.rawBody = buf.toString(encoding || "utf8");
+  }
+};
+
+// ============================================
+// ⭐ Register WEBHOOK routes FIRST
+// with custom body parser to capture raw body
 // This MUST happen BEFORE express.json()
 // ============================================
 
-console.log("[Server] Registering webhook routes (with raw body)...");
+console.log("[Server] Registering webhook routes (with raw body capture)...");
 
 app.post(
   "/api/candidate/razorpay-webhook",
-  express.raw({ type: "application/json" }),
+  express.json({ verify: captureRawBody }),
   (req, res) => {
-    req.rawBody = req.body.toString();
+    console.log("[Webhook] Raw body captured:", req.rawBody ? "✅ YES" : "❌ NO");
     handlePaymentWebhook(req, res);
   }
 );
 
 app.post(
   "/api/candidate/razorpay-webhook-router",
-  express.raw({ type: "application/json" }),
+  express.json({ verify: captureRawBody }),
   (req, res) => {
-    req.rawBody = req.body.toString();
+    console.log("[Router] Raw body captured:", req.rawBody ? "✅ YES" : "❌ NO");
     handlePaymentWebhookRouter(req, res);
   }
 );
@@ -152,7 +163,7 @@ console.log("  GET /api/admin/feedback-metrics (auth required)");
 app.post("/api/candidate/razorpay-order", createRazorpayOrder);
 app.post("/api/candidate/razorpay-verify", verifyPayment);
 
-// ⭐ NOTE: Webhook routes are registered ABOVE (before express.json())
+// ⭐ NOTE: Webhook routes are registered ABOVE (with custom body parser)
 
 // Admin Payment Incidents Routes
 app.get("/api/admin/payment-incidents", getIncidents);
@@ -164,8 +175,8 @@ app.get("/api/admin/payment-stats", getPaymentStats);
 console.log("[Server] ✅ Payment routes registered:");
 console.log("  POST /api/candidate/razorpay-order (with file upload)");
 console.log("  POST /api/candidate/razorpay-verify");
-console.log("  POST /api/candidate/razorpay-webhook ⭐ (registered early with raw body)");
-console.log("  POST /api/candidate/razorpay-webhook-router ⭐ (registered early with raw body)");
+console.log("  POST /api/candidate/razorpay-webhook ⭐ (custom body parser)");
+console.log("  POST /api/candidate/razorpay-webhook-router ⭐ (custom body parser)");
 console.log("  GET  /api/admin/payment-incidents");
 console.log("  GET  /api/admin/payment-incidents/:incidentId");
 console.log("  POST /api/admin/payment-incidents/:incidentId/resolve-trigger");
@@ -249,7 +260,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(
-    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n║     Raw Body Capture: Ready ✅ (FINAL FIX)  ║\n╚════════════════════════════════════════════╝\n`
+    `\n╔════════════════════════════════════════════╗\n║     ScreenCV Server Started ✅             ║\n║     http://localhost:${PORT}                  ║\n║     App: http://localhost:${PORT}/screener.html\n║     Admin: http://localhost:${PORT}/admin      ║\n║     Feedback: http://localhost:${PORT}/feedback\n║     Payment APIs: Ready ✅                   ║\n║     File Upload: Ready ✅                    ║\n║     Analytics APIs: Ready ✅                 ║\n║     Routing Webhook: Ready ✅ (NEW)         ║\n║     Raw Body Capture: Ready ✅ (ULTIMATE)   ║\n╚════════════════════════════════════════════╝\n`
   );
 });
 

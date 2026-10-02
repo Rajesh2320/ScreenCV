@@ -18,9 +18,14 @@
 //  8. Candidate name: uses the name Claude read from the resume, and otherwise
 //     the first line that looks like a name. Previously the first line of the
 //     resume was used whatever it was, e.g. a row of "=====".
+//  9. Runs a second Claude call alongside the analysis for the practical
+//     sections of the report (rewritten resume lines, missing keywords,
+//     interview questions with talking points, better-fit roles). If that
+//     call fails the report is still sent, without those sections. Token and
+//     cost totals saved to the database cover both calls.
 
 const { supabase } = require("../../lib/supabase-client");
-const { generateRecruiterAnalysis } = require("../../lib/claude-scoring");
+const { generateRecruiterAnalysis, generateCoachingExtras } = require("../../lib/claude-scoring");
 const { generateRecruiterReportHTML, replaceFeedbackToken } = require("../../lib/html-generator-recruiter");
 const { sendEmailWithPDF } = require("../../lib/nodemailer-sender");
 
@@ -80,9 +85,14 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
   try {
     console.log(`[ANALYZE] Starting for submission: ${submissionId}`);
 
-    // Call Claude
-    console.log(`[ANALYZE] Calling Claude API...`);
-    const analysisResult = await generateRecruiterAnalysis(resumeText, jobDescription);
+    // Two Claude calls run side by side, so the wait is the longer of the two
+    // rather than the sum: the match analysis, and the practical extras
+    // (rewrites, keywords, interview prep, better-fit roles).
+    console.log(`[ANALYZE] Calling Claude API (analysis + coaching extras)...`);
+    const [analysisResult, coachingResult] = await Promise.all([
+      generateRecruiterAnalysis(resumeText, jobDescription),
+      generateCoachingExtras(resumeText, jobDescription).catch((err) => ({ success: false, error: err.message })),
+    ]);
 
     if (!analysisResult || !analysisResult.success) {
       const reason = (analysisResult && analysisResult.error) || "No response from analysis";
@@ -97,6 +107,14 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       return { success: false, error: "Analysis response had no score" };
     }
     console.log(`[ANALYZE] Claude API SUCCESS. Score: ${overallScore}`);
+
+    // The extras are a bonus on top of the analysis. If that call fails, the
+    // customer still gets the full match report, just without those sections.
+    const coachingOk = !!(coachingResult && coachingResult.success);
+    const coaching = coachingOk ? coachingResult.data : {};
+    if (!coachingOk) {
+      console.error(`[ANALYZE] Coaching extras FAILED (report will be sent without them): ${coachingResult?.error || "unknown error"}`);
+    }
 
     // Candidate name: Claude's reading of the resume first, then the first
     // line of the resume that actually looks like a name
@@ -123,6 +141,10 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       top5Improvements: analysisData.improvements || [],
       concerns: analysisData.concerns || [],
       interviewQuestions: analysisData.interview_questions || [],
+      resumeRewrites: coaching.resume_rewrites || [],
+      missingKeywords: coaching.missing_keywords || [],
+      interviewPrep: coaching.interview_prep || [],
+      betterFitRoles: coaching.better_fit_roles || [],
       interviewRecommendation: analysisData.interview_recommendation,
     });
 
@@ -160,10 +182,11 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
           interview_questions: analysisData.interview_questions || [],
           score: overallScore,
           overall_score: overallScore,
-          input_tokens: analysisData.tokens?.input || 0,
-          output_tokens: analysisData.tokens?.output || 0,
-          analysis_cost_usd: analysisData.tokens?.costUsd || 0,
-          analysis_cost_inr: analysisData.tokens?.costInr || 0,
+          // Totals cover both Claude calls (analysis + coaching extras)
+          input_tokens: (analysisData.tokens?.input || 0) + (coaching.tokens?.input || 0),
+          output_tokens: (analysisData.tokens?.output || 0) + (coaching.tokens?.output || 0),
+          analysis_cost_usd: parseFloat(((analysisData.tokens?.costUsd || 0) + (coaching.tokens?.costUsd || 0)).toFixed(6)),
+          analysis_cost_inr: parseFloat(((analysisData.tokens?.costInr || 0) + (coaching.tokens?.costInr || 0)).toFixed(2)),
           html_report: htmlContent,
           language: "English",
           created_at: new Date().toISOString(),
@@ -246,6 +269,7 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       score: overallScore,
       emailSent: emailSent,
       emailError: emailError,
+      coachingIncluded: coachingOk,
     };
 
   } catch (error) {

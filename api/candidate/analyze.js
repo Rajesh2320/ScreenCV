@@ -81,6 +81,42 @@ async function htmlToPDF(htmlContent, candidateName, jobTitle) {
 }
 
 /**
+ * Parse Claude Analysis Response
+ * Extracts score, match percentage, strengths, improvements, keywords, interview questions, resume gaps
+ */
+function parseAnalysisResponse(analysisText) {
+  const extractSection = (text, sectionName) => {
+    const regex = new RegExp(`${sectionName}[:\\n\\s]+(.+?)(?=\\n\\n|\\n[A-Z_]+:|$)`, 'is');
+    const match = text.match(regex);
+    if (!match) return [];
+
+    return match[1]
+      .split('\n')
+      .map(line => line.replace(/^[-•*]\s*/, '').trim())
+      .filter(line => line.length > 0);
+  };
+
+  const extractNumber = (text, pattern) => {
+    const regex = new RegExp(pattern, 'i');
+    const match = text.match(regex);
+    if (!match) return 0;
+
+    const num = parseInt(match[1]);
+    return isNaN(num) ? 0 : Math.min(100, Math.max(0, num));
+  };
+
+  return {
+    score: extractNumber(analysisText, /SCORE[:\s]+(\d+)/),
+    matchPercentage: extractNumber(analysisText, /MATCH_PERCENTAGE[:\s]+(\d+)/),
+    strengths: extractSection(analysisText, 'STRENGTHS'),
+    improvements: extractSection(analysisText, 'IMPROVEMENTS'),
+    keywords: extractSection(analysisText, 'KEYWORDS'),
+    interviewQuestions: extractSection(analysisText, 'INTERVIEW_QUESTIONS'),
+    resumeGaps: extractSection(analysisText, 'RESUME_GAPS')
+  };
+}
+
+/**
  * Generate payment confirmation email
  * ✅ REBRANDED TO BIOSYNC
  */
@@ -263,28 +299,8 @@ async function analyzeResumeVsJob(
 
     const candidateName = submission.candidate_name || 'Candidate';
 
-    // Send payment confirmation email (if payment info provided)
-    if (paymentInfo) {
-      console.log('[analyzeResumeVsJob] Sending payment confirmation email...');
-      const confirmationEmail = getPaymentConfirmationEmail(
-        candidateName,
-        jobTitle,
-        paymentInfo.orderId || submission.razorpay_order_id || 'N/A',
-        paymentInfo.amount || 99
-      );
-
-      try {
-        await sendEmailWithPDF({
-          to: email,
-          subject: `BIOSYNC Report - ${jobTitle} [Order: ${paymentInfo.orderId || submission_id.slice(0, 8)}]`,
-          html: confirmationEmail
-        });
-        console.log(`[analyzeResumeVsJob] ✓ Payment confirmation email sent to ${email}`);
-      } catch (emailError) {
-        console.error('[analyzeResumeVsJob] Failed to send confirmation email:', emailError.message);
-        // Continue processing even if confirmation email fails
-      }
-    }
+    // ✅ REMOVED: Payment confirmation email (saves resources)
+    // User only gets final analysis report email
 
     // Validate input
     if (!resumeText || !jobDescText) {
@@ -347,8 +363,7 @@ RESUME_GAPS:
 
     // Parse analysis response
     console.log('[analyzeResumeVsJob] Parsing analysis response...');
-    const parseAnalysis = require('../../lib/claude-scoring');
-    const analysis = parseAnalysis.parseAnalysisResponse(analysisText);
+    const analysis = parseAnalysisResponse(analysisText);
 
     // Generate HTML report
     console.log('[analyzeResumeVsJob] Generating HTML report...');

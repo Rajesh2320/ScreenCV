@@ -85,18 +85,29 @@ async function handlePaymentWebhookRouter(req, res) {
       event = body;
     }
 
-    console.log("[Router] Event structure:", JSON.stringify(event, null, 2).substring(0, 500));
+    // ⭐ VERY VERBOSE LOGGING
+    console.log("[Router] ========== FULL PAYLOAD ==========");
     console.log("[Router] event.event:", event.event);
     console.log("[Router] event.payload keys:", event.payload ? Object.keys(event.payload) : "NO PAYLOAD");
+    
+    if (event.payload) {
+      console.log("[Router] payload.payment:", event.payload.payment ? "EXISTS" : "MISSING");
+      console.log("[Router] payload.order:", event.payload.order ? "EXISTS" : "MISSING");
+      console.log("[Router] Full payload:", JSON.stringify(event.payload, null, 2));
+    }
 
     // ⭐ Handle both structures
     const payment = event.payload?.payment?.entity || event.payload?.payment;
     const order = event.payload?.order?.entity || event.payload?.order;
 
+    console.log("[Router] ========== EXTRACTED DATA ==========");
+    console.log("[Router] Payment:", JSON.stringify(payment, null, 2));
+    console.log("[Router] Order:", JSON.stringify(order, null, 2));
+
     if (!payment || !order) {
-      console.error("[Router] ❌ Invalid payload structure");
-      console.error("[Router] Payment:", payment);
-      console.error("[Router] Order:", order);
+      console.error("[Router] ❌ Invalid payload structure - missing payment or order");
+      console.error("[Router] Payment exists?", !!payment);
+      console.error("[Router] Order exists?", !!order);
       return res.status(400).json({ error: "Invalid payload structure" });
     }
 

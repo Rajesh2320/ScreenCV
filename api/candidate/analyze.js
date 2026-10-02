@@ -81,6 +81,283 @@ async function htmlToPDF(htmlContent, candidateName, jobTitle) {
 }
 
 /**
+ * Generate Email Template for Analysis Report
+ * Creates the email body with key highlights
+ */
+function generateAnalysisEmailTemplate(data) {
+  const { candidateName, jobTitle, score, matchPercentage, strengths, improvements, keywords } = data;
+  const scoreColor = score >= 70 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; }
+    .container { max-width: 600px; margin: 20px auto; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .score { background: ${scoreColor}; color: white; padding: 20px; text-align: center; margin: 20px 30px; border-radius: 8px; }
+    .score-number { font-size: 36px; font-weight: bold; }
+    .content { padding: 30px; }
+    .section { margin-bottom: 20px; }
+    .section h3 { color: #667eea; font-size: 16px; margin-bottom: 10px; }
+    .section ul { list-style: none; padding: 0; margin: 0; }
+    .section li { padding: 8px 0; padding-left: 20px; position: relative; }
+    .section li:before { content: "▸"; position: absolute; left: 0; color: #667eea; font-weight: bold; }
+    .footer { background: #f5f5f5; padding: 20px 30px; text-align: center; font-size: 12px; color: #999; border-top: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Your BIOSYNC Analysis is Ready!</h1>
+    </div>
+
+    <div class="score">
+      <div class="score-number">${score}/100</div>
+      <div>${matchPercentage}% Match with Job Description</div>
+    </div>
+
+    <div class="content">
+      <p>Hi <strong>${candidateName}</strong>,</p>
+      <p>Your resume analysis for the <strong>${jobTitle}</strong> position is complete. Here are the key highlights:</p>
+
+      ${strengths && strengths.length > 0 ? `
+      <div class="section">
+        <h3>✓ Your Top Strengths</h3>
+        <ul>
+          ${strengths.slice(0, 3).map(s => `<li>${s}</li>`).join('')}
+        </ul>
+      </div>
+      ` : ''}
+
+      ${improvements && improvements.length > 0 ? `
+      <div class="section">
+        <h3>⚡ Areas to Improve</h3>
+        <ul>
+          ${improvements.slice(0, 3).map(i => `<li>${i}</li>`).join('')}
+        </ul>
+      </div>
+      ` : ''}
+
+      ${keywords && keywords.length > 0 ? `
+      <div class="section">
+        <h3>🔑 Key Skills to Emphasize</h3>
+        <ul>
+          ${keywords.slice(0, 5).map(k => `<li>${k}</li>`).join('')}
+        </ul>
+      </div>
+      ` : ''}
+
+      <p style="margin-top: 25px; padding: 15px; background: #f0f7ff; border-left: 4px solid #667eea; border-radius: 4px;">
+        <strong>📎 Detailed Report Attached</strong><br>
+        Check the attached PDF for your complete analysis including interview preparation tips and resume gaps.
+      </p>
+    </div>
+
+    <div class="footer">
+      <p style="margin: 0;"><strong>Team BIOSYNC</strong></p>
+      <p style="margin: 5px 0 0 0;">© 2026 BIOSYNC. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generate HTML Report for Analysis
+ * Creates professional report from parsed analysis data
+ */
+function generateHTMLReport(data) {
+  const {
+    candidateName,
+    jobTitle,
+    score,
+    matchPercentage,
+    strengths,
+    improvements,
+    keywords,
+    interviewQuestions,
+    resumeGaps
+  } = data;
+
+  const scoreColor = score >= 70 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: 40px;
+    }
+    .header {
+      text-align: center;
+      border-bottom: 3px solid #667eea;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      font-size: 28px;
+      color: #667eea;
+      margin-bottom: 10px;
+    }
+    .header p {
+      font-size: 14px;
+      color: #999;
+    }
+    .score-box {
+      background: linear-gradient(135deg, ${scoreColor} 0%, ${scoreColor}dd 100%);
+      color: white;
+      padding: 30px;
+      border-radius: 10px;
+      text-align: center;
+      margin: 30px 0;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .score-box .number {
+      font-size: 48px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .score-box .label {
+      font-size: 16px;
+      opacity: 0.9;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    .section h2 {
+      font-size: 20px;
+      color: #667eea;
+      margin-bottom: 15px;
+      border-left: 4px solid #667eea;
+      padding-left: 15px;
+    }
+    .section ul {
+      list-style: none;
+      padding: 0;
+    }
+    .section li {
+      padding: 10px 0;
+      padding-left: 25px;
+      position: relative;
+      line-height: 1.5;
+    }
+    .section li:before {
+      content: "▸";
+      position: absolute;
+      left: 0;
+      color: #667eea;
+      font-weight: bold;
+    }
+    .keywords-box {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    .keyword {
+      background: #e8eaf6;
+      color: #667eea;
+      padding: 8px 15px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #ddd;
+      color: #999;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>BIOSYNC Resume Analysis</h1>
+      <p>${candidateName} • ${jobTitle}</p>
+    </div>
+
+    <div class="score-box">
+      <div class="number">${score}/100</div>
+      <div class="label">Match Score • ${matchPercentage}% Match</div>
+    </div>
+
+    ${strengths && strengths.length > 0 ? `
+    <div class="section">
+      <h2>✓ Strengths</h2>
+      <ul>
+        ${strengths.map(s => `<li>${s}</li>`).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    ${improvements && improvements.length > 0 ? `
+    <div class="section">
+      <h2>⚡ Areas for Improvement</h2>
+      <ul>
+        ${improvements.map(i => `<li>${i}</li>`).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    ${keywords && keywords.length > 0 ? `
+    <div class="section">
+      <h2>🔑 Key Skills & Keywords</h2>
+      <div class="keywords-box">
+        ${keywords.map(k => `<span class="keyword">${k}</span>`).join('')}
+      </div>
+    </div>
+    ` : ''}
+
+    ${interviewQuestions && interviewQuestions.length > 0 ? `
+    <div class="section">
+      <h2>💡 Interview Preparation</h2>
+      <ul>
+        ${interviewQuestions.map(q => `<li>${q}</li>`).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    ${resumeGaps && resumeGaps.length > 0 ? `
+    <div class="section">
+      <h2>📋 Resume Gaps to Address</h2>
+      <ul>
+        ${resumeGaps.map(g => `<li>${g}</li>`).join('')}
+      </ul>
+    </div>
+    ` : ''}
+
+    <div class="footer">
+      <p><strong>Team BIOSYNC</strong> | AI-Powered Resume Analysis</p>
+      <p>© 2026 BIOSYNC. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
  * Parse Claude Analysis Response
  * Extracts score, match percentage, strengths, improvements, keywords, interview questions, resume gaps
  */
@@ -367,7 +644,7 @@ RESUME_GAPS:
 
     // Generate HTML report
     console.log('[analyzeResumeVsJob] Generating HTML report...');
-    const htmlReport = generateHTML.generateRecruitersAnalysisHTML({
+    const htmlReport = generateHTMLReport({
       candidateName: candidateName,
       jobTitle: jobTitle,
       score: analysis.score,
@@ -376,8 +653,7 @@ RESUME_GAPS:
       improvements: analysis.improvements,
       keywords: analysis.keywords,
       interviewQuestions: analysis.interviewQuestions,
-      resumeGaps: analysis.resumeGaps,
-      analysis: analysisText
+      resumeGaps: analysis.resumeGaps
     });
 
     // Convert HTML to PDF
@@ -414,7 +690,7 @@ RESUME_GAPS:
 
     // Send analysis email
     console.log('[analyzeResumeVsJob] Sending analysis email...');
-    const analysisEmailHTML = require('../../lib/nodemailer-sender').getAnalysisEmailTemplate({
+    const analysisEmailHTML = generateAnalysisEmailTemplate({
       jobTitle: jobTitle,
       score: analysis.score,
       strengths: analysis.strengths,

@@ -335,7 +335,7 @@ RESUME_GAPS:
 `;
 
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
       messages: [
         { role: 'user', content: analysisPrompt }
@@ -451,7 +451,7 @@ RESUME_GAPS:
       .insert({
         submission_id: submission_id,
         review_id: reportData.id,
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-haiku-4-5-20251001',
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         total_tokens: inputTokens + outputTokens,

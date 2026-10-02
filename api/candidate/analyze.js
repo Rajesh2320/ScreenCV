@@ -2,6 +2,7 @@
  * API Route: /api/candidate/analyze
  * Purpose: Process resume analysis + send email report
  * ✅ REBRANDED TO BIOSYNC
+ * ✅ FIXED: Exports both handler AND analyzeResumeVsJob for webhook use
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -229,27 +230,23 @@ function getPaymentConfirmationEmail(candidateName, jobTitle, orderId, amountPai
 }
 
 /**
- * Main API Handler
+ * ✅ CORE FUNCTION: Analyze resume vs job description
+ * Called by: webhook, verify endpoint, and direct POST requests
+ * Returns: { success, error, reportId, score, matchPercentage, ... }
  */
-async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  const { submission_id, email, candidateName, jobTitle } = req.body;
-
-  if (!submission_id || !email || !candidateName || !jobTitle) {
-    return res.status(400).json({
-      error: 'Missing required fields',
-      required: ['submission_id', 'email', 'candidateName', 'jobTitle']
-    });
-  }
-
+async function analyzeResumeVsJob(
+  submission_id,
+  resumeText,
+  jobDescText,
+  jobTitle,
+  email,
+  feedbackToken = null,
+  paymentInfo = null
+) {
   try {
-    console.log(`\n[ANALYZE] Starting analysis for submission: ${submission_id}`);
+    console.log(`\n[analyzeResumeVsJob] Starting analysis for submission: ${submission_id}`);
 
-    // 1. Fetch submission from database
-    console.log('[ANALYZE] Fetching submission from database...');
+    // Fetch submission to get candidate name and other details
     const { data: submission, error: fetchError } = await supabase
       .from('candidate_submissions')
       .select('*')
@@ -257,76 +254,48 @@ async function handler(req, res) {
       .single();
 
     if (fetchError || !submission) {
-      console.error('[ANALYZE] Submission fetch error:', fetchError);
-      return res.status(404).json({ error: 'Submission not found' });
+      console.error('[analyzeResumeVsJob] Submission fetch error:', fetchError);
+      return {
+        success: false,
+        error: 'Submission not found'
+      };
     }
 
-    // 2. Send payment confirmation email
-    console.log('[ANALYZE] Sending payment confirmation email...');
-    const confirmationEmail = getPaymentConfirmationEmail(
-      candidateName,
-      jobTitle,
-      submission.order_id || 'N/A',
-      '99'
-    );
+    const candidateName = submission.candidate_name || 'Candidate';
 
-    try {
-      await sendEmailWithPDF({
-        to: email,
-        subject: `BIOSYNC Report - ${jobTitle} [Order: ${submission.order_id || submission_id.slice(0, 8)}]`,
-        html: confirmationEmail
-      });
-      console.log(`[ANALYZE] ✓ Payment confirmation email sent to ${email}`);
-    } catch (emailError) {
-      console.error('[ANALYZE] Failed to send confirmation email:', emailError.message);
-      // Continue processing even if email fails
+    // Send payment confirmation email (if payment info provided)
+    if (paymentInfo) {
+      console.log('[analyzeResumeVsJob] Sending payment confirmation email...');
+      const confirmationEmail = getPaymentConfirmationEmail(
+        candidateName,
+        jobTitle,
+        paymentInfo.orderId || submission.razorpay_order_id || 'N/A',
+        paymentInfo.amount || 99
+      );
+
+      try {
+        await sendEmailWithPDF({
+          to: email,
+          subject: `BIOSYNC Report - ${jobTitle} [Order: ${paymentInfo.orderId || submission_id.slice(0, 8)}]`,
+          html: confirmationEmail
+        });
+        console.log(`[analyzeResumeVsJob] ✓ Payment confirmation email sent to ${email}`);
+      } catch (emailError) {
+        console.error('[analyzeResumeVsJob] Failed to send confirmation email:', emailError.message);
+        // Continue processing even if confirmation email fails
+      }
     }
 
-    // 3. Fetch resume & job description files
-    console.log('[ANALYZE] Fetching files from Supabase Storage...');
-    const resumePath = submission.resume_file_path;
-    const jobDescPath = submission.job_description_file_path;
-
-    if (!resumePath || !jobDescPath) {
-      return res.status(400).json({
-        error: 'Resume or job description not found',
-        has_resume: !!resumePath,
-        has_job_desc: !!jobDescPath
-      });
-    }
-
-    // Get file URLs from Supabase Storage
-    const { data: resumeData, error: resumeError } = await supabase
-      .storage
-      .from('candidate-uploads')
-      .download(resumePath);
-
-    const { data: jobDescData, error: jobDescError } = await supabase
-      .storage
-      .from('candidate-uploads')
-      .download(jobDescPath);
-
-    if (resumeError || jobDescError) {
-      console.error('[ANALYZE] File download error:', { resumeError, jobDescError });
-      return res.status(400).json({ error: 'Failed to download files' });
-    }
-
-    console.log('[ANALYZE] Files downloaded successfully');
-
-    // 4. Extract text from files
-    console.log('[ANALYZE] Extracting text from files...');
-    const fileExtraction = require('../../lib/file-extraction');
-    const resumeText = await fileExtraction.extractText(resumeData, resumePath);
-    const jobDescText = await fileExtraction.extractText(jobDescData, jobDescPath);
-
+    // Validate input
     if (!resumeText || !jobDescText) {
-      return res.status(400).json({ error: 'Failed to extract text from files' });
+      return {
+        success: false,
+        error: 'Resume or job description text missing'
+      };
     }
 
-    console.log(`[ANALYZE] Resume text: ${resumeText.length} chars, Job desc: ${jobDescText.length} chars`);
-
-    // 5. Call Claude API for analysis
-    console.log('[ANALYZE] Calling Claude API for analysis...');
+    // Call Claude API for analysis
+    console.log('[analyzeResumeVsJob] Calling Claude API for analysis...');
     const analysisPrompt = `
 Analyze this resume against the job description. Provide a detailed analysis.
 
@@ -374,15 +343,15 @@ RESUME_GAPS:
     });
 
     const analysisText = message.content[0].type === 'text' ? message.content[0].text : '';
-    console.log('[ANALYZE] ✓ Claude analysis received');
+    console.log('[analyzeResumeVsJob] ✓ Claude analysis received');
 
-    // 6. Parse analysis response
-    console.log('[ANALYZE] Parsing analysis response...');
+    // Parse analysis response
+    console.log('[analyzeResumeVsJob] Parsing analysis response...');
     const parseAnalysis = require('../../lib/claude-scoring');
     const analysis = parseAnalysis.parseAnalysisResponse(analysisText);
 
-    // 7. Generate HTML report
-    console.log('[ANALYZE] Generating HTML report...');
+    // Generate HTML report
+    console.log('[analyzeResumeVsJob] Generating HTML report...');
     const htmlReport = generateHTML.generateRecruitersAnalysisHTML({
       candidateName: candidateName,
       jobTitle: jobTitle,
@@ -396,13 +365,13 @@ RESUME_GAPS:
       analysis: analysisText
     });
 
-    // 8. Convert HTML to PDF
-    console.log('[ANALYZE] Converting HTML to PDF...');
+    // Convert HTML to PDF
+    console.log('[analyzeResumeVsJob] Converting HTML to PDF...');
     const pdfBuffer = await htmlToPDF(htmlReport, candidateName, jobTitle);
-    console.log(`[ANALYZE] PDF generated: ${pdfBuffer.length} bytes`);
+    console.log(`[analyzeResumeVsJob] PDF generated: ${pdfBuffer.length} bytes`);
 
-    // 9. Save report to database
-    console.log('[ANALYZE] Saving report to database...');
+    // Save report to database
+    console.log('[analyzeResumeVsJob] Saving report to database...');
     const { data: reportData, error: reportError } = await supabase
       .from('candidate_reports')
       .insert({
@@ -419,14 +388,17 @@ RESUME_GAPS:
       .single();
 
     if (reportError) {
-      console.error('[ANALYZE] Report save error:', reportError);
-      return res.status(500).json({ error: 'Failed to save report' });
+      console.error('[analyzeResumeVsJob] Report save error:', reportError);
+      return {
+        success: false,
+        error: 'Failed to save report'
+      };
     }
 
-    console.log(`[ANALYZE] ✓ Report saved with ID: ${reportData.id}`);
+    console.log(`[analyzeResumeVsJob] ✓ Report saved with ID: ${reportData.id}`);
 
-    // 10. Send analysis email
-    console.log('[ANALYZE] Sending analysis email...');
+    // Send analysis email
+    console.log('[analyzeResumeVsJob] Sending analysis email...');
     const analysisEmailHTML = require('../../lib/nodemailer-sender').getAnalysisEmailTemplate({
       jobTitle: jobTitle,
       score: analysis.score,
@@ -447,14 +419,14 @@ RESUME_GAPS:
         htmlBuffer: Buffer.from(htmlReport, 'utf-8'),
         htmlFilename: `BIOSYNC_Analysis_${candidateName.replace(/\s+/g, '_')}_${Date.now()}.html`
       });
-      console.log(`[ANALYZE] ✓ Analysis email sent to ${email}`);
+      console.log(`[analyzeResumeVsJob] ✓ Analysis email sent to ${email}`);
     } catch (emailError) {
-      console.error('[ANALYZE] Failed to send analysis email:', emailError.message);
+      console.error('[analyzeResumeVsJob] Failed to send analysis email:', emailError.message);
       // Don't fail the analysis if email fails
     }
 
-    // 11. Update submission status
-    console.log('[ANALYZE] Updating submission status...');
+    // Update submission status
+    console.log('[analyzeResumeVsJob] Updating submission status...');
     const { error: updateError } = await supabase
       .from('candidate_submissions')
       .update({
@@ -465,11 +437,11 @@ RESUME_GAPS:
       .eq('id', submission_id);
 
     if (updateError) {
-      console.error('[ANALYZE] Status update error:', updateError);
+      console.error('[analyzeResumeVsJob] Status update error:', updateError);
     }
 
-    // 12. Log AI costs
-    console.log('[ANALYZE] Logging AI costs...');
+    // Log AI costs
+    console.log('[analyzeResumeVsJob] Logging AI costs...');
     const inputTokens = message.usage.input_tokens;
     const outputTokens = message.usage.output_tokens;
     const estimatedCostINR = (inputTokens * 0.00003 + outputTokens * 0.00015) * 100; // Approximate
@@ -487,18 +459,19 @@ RESUME_GAPS:
       });
 
     if (costError) {
-      console.error('[ANALYZE] Cost logging error:', costError);
+      console.error('[analyzeResumeVsJob] Cost logging error:', costError);
     }
 
-    console.log(`[ANALYZE] ✅ Analysis complete!`);
-    console.log(`[ANALYZE] - Score: ${analysis.score}/100`);
-    console.log(`[ANALYZE] - Tokens: ${inputTokens} input, ${outputTokens} output`);
-    console.log(`[ANALYZE] - Cost: ₹${estimatedCostINR.toFixed(2)}`);
+    console.log(`[analyzeResumeVsJob] ✅ Analysis complete!`);
+    console.log(`[analyzeResumeVsJob] - Score: ${analysis.score}/100`);
+    console.log(`[analyzeResumeVsJob] - Tokens: ${inputTokens} input, ${outputTokens} output`);
+    console.log(`[analyzeResumeVsJob] - Cost: ₹${estimatedCostINR.toFixed(2)}`);
 
-    return res.status(200).json({
+    // ✅ Return success with all details
+    return {
       success: true,
       message: 'Analysis completed and emails sent',
-      report_id: reportData.id,
+      reportId: reportData.id,
       score: analysis.score,
       matchPercentage: analysis.matchPercentage,
       aiCost: {
@@ -506,7 +479,112 @@ RESUME_GAPS:
         outputTokens: outputTokens,
         estimatedCostINR: estimatedCostINR.toFixed(2)
       }
+    };
+
+  } catch (error) {
+    console.error('[analyzeResumeVsJob] Unexpected error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * API Handler for direct POST requests
+ * Called by: /api/candidate/analyze endpoint
+ */
+async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { submission_id, email, candidateName, jobTitle } = req.body;
+
+  if (!submission_id || !email || !candidateName || !jobTitle) {
+    return res.status(400).json({
+      error: 'Missing required fields',
+      required: ['submission_id', 'email', 'candidateName', 'jobTitle']
     });
+  }
+
+  try {
+    console.log(`\n[ANALYZE] Starting analysis for submission: ${submission_id}`);
+
+    // 1. Fetch submission from database
+    console.log('[ANALYZE] Fetching submission from database...');
+    const { data: submission, error: fetchError } = await supabase
+      .from('candidate_submissions')
+      .select('*')
+      .eq('id', submission_id)
+      .single();
+
+    if (fetchError || !submission) {
+      console.error('[ANALYZE] Submission fetch error:', fetchError);
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // 2. Fetch resume & job description files
+    console.log('[ANALYZE] Fetching files from Supabase Storage...');
+    const resumePath = submission.resume_file_path;
+    const jobDescPath = submission.job_description_file_path;
+
+    if (!resumePath || !jobDescPath) {
+      return res.status(400).json({
+        error: 'Resume or job description not found',
+        has_resume: !!resumePath,
+        has_job_desc: !!jobDescPath
+      });
+    }
+
+    // Get file URLs from Supabase Storage
+    const { data: resumeData, error: resumeError } = await supabase
+      .storage
+      .from('candidate-uploads')
+      .download(resumePath);
+
+    const { data: jobDescData, error: jobDescError } = await supabase
+      .storage
+      .from('candidate-uploads')
+      .download(jobDescPath);
+
+    if (resumeError || jobDescError) {
+      console.error('[ANALYZE] File download error:', { resumeError, jobDescError });
+      return res.status(400).json({ error: 'Failed to download files' });
+    }
+
+    console.log('[ANALYZE] Files downloaded successfully');
+
+    // 3. Extract text from files
+    console.log('[ANALYZE] Extracting text from files...');
+    const fileExtraction = require('../../lib/file-extraction');
+    const resumeText = await fileExtraction.extractText(resumeData, resumePath);
+    const jobDescText = await fileExtraction.extractText(jobDescData, jobDescPath);
+
+    if (!resumeText || !jobDescText) {
+      return res.status(400).json({ error: 'Failed to extract text from files' });
+    }
+
+    console.log(`[ANALYZE] Resume text: ${resumeText.length} chars, Job desc: ${jobDescText.length} chars`);
+
+    // 4. Call analyzeResumeVsJob
+    const result = await analyzeResumeVsJob(
+      submission_id,
+      resumeText,
+      jobDescText,
+      jobTitle,
+      email,
+      null,  // feedbackToken
+      null   // paymentInfo (direct API call, not from webhook)
+    );
+
+    if (!result.success) {
+      return res.status(500).json({
+        error: result.error || 'Analysis failed'
+      });
+    }
+
+    return res.status(200).json(result);
 
   } catch (error) {
     console.error('[ANALYZE] Unexpected error:', error);
@@ -518,4 +596,8 @@ RESUME_GAPS:
   }
 }
 
-module.exports = handler;
+// ✅ EXPORT BOTH: handler for Vercel + analyzeResumeVsJob for webhook/verify
+module.exports = {
+  handler,              // Vercel serverless handler
+  analyzeResumeVsJob,   // For webhook + verify endpoint
+};

@@ -41,7 +41,21 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
 
     // Call enhanced Claude scoring with ALL NEW FIELDS
     logger.log(`[analyzeResumeVsJob] Calling Claude API for analysis...`);
-    const analysisResult = await generateRecruiterAnalysis(resumeText, jobDescription);
+    logger.log(`[analyzeResumeVsJob] Resume length: ${resumeText.length} chars, Job desc length: ${jobDescription.length} chars`);
+    
+    let analysisResult;
+    try {
+      analysisResult = await generateRecruiterAnalysis(resumeText, jobDescription);
+      logger.log(`[analyzeResumeVsJob] ✅ Claude API response received`);
+    } catch (claudeError) {
+      logger.log(`[analyzeResumeVsJob] ❌ Claude API ERROR: ${claudeError.message}`);
+      logger.log(`[analyzeResumeVsJob] Error type: ${claudeError.constructor.name}`);
+      return {
+        success: false,
+        error: `Claude API failed: ${claudeError.message}`,
+        logs: logger.getLogs()
+      };
+    }
 
     if (!analysisResult.success) {
       logger.log(`[analyzeResumeVsJob] ❌ Analysis failed: ${analysisResult.error}`);

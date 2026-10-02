@@ -55,20 +55,27 @@ async function handlePaymentWebhookRouter(req, res) {
       return res.status(400).json({ error: "Missing webhook data" });
     }
 
+    // ⭐ TEST MODE: Skip signature if in test mode and header missing
+    const isTestMode = process.env.RAZORPAY_MODE === "test";
+    
     if (!signature) {
-      console.error("[Router] ❌ Missing x-razorpay-signature header");
-      return res.status(400).json({ error: "Missing signature" });
+      if (isTestMode) {
+        console.warn("[Router] ⚠️  Missing signature (test mode - proceeding without verification)");
+      } else {
+        console.error("[Router] ❌ Missing x-razorpay-signature header");
+        return res.status(400).json({ error: "Missing signature" });
+      }
+    } else {
+      // Verify signature if present
+      const isValid = verifyWebhookSignature(body, signature);
+
+      if (!isValid) {
+        console.error("[Router] ❌ Invalid webhook signature!");
+        return res.status(400).json({ error: "Invalid signature" });
+      }
+
+      console.log("[Router] ✅ Signature verified");
     }
-
-    // Verify signature
-    const isValid = verifyWebhookSignature(body, signature);
-
-    if (!isValid) {
-      console.error("[Router] ❌ Invalid webhook signature!");
-      return res.status(400).json({ error: "Invalid signature" });
-    }
-
-    console.log("[Router] ✅ Signature verified");
 
     // Parse the body if it's still a string
     let event;

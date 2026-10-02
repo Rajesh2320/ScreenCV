@@ -85,30 +85,50 @@ async function handlePaymentWebhookRouter(req, res) {
       event = body;
     }
 
-    const payment = event.payload.payment.entity;
-    const order = event.payload.order.entity;
+    console.log("[Router] Event structure:", JSON.stringify(event, null, 2).substring(0, 500));
+    console.log("[Router] event.event:", event.event);
+    console.log("[Router] event.payload keys:", event.payload ? Object.keys(event.payload) : "NO PAYLOAD");
+
+    // ⭐ Handle both structures
+    const payment = event.payload?.payment?.entity || event.payload?.payment;
+    const order = event.payload?.order?.entity || event.payload?.order;
+
+    if (!payment || !order) {
+      console.error("[Router] ❌ Invalid payload structure");
+      console.error("[Router] Payment:", payment);
+      console.error("[Router] Order:", order);
+      return res.status(400).json({ error: "Invalid payload structure" });
+    }
 
     console.log(
-      `[Router] Event: ${event.event}, Order: ${order.id}, Payment: ${payment.id}, Status: ${payment.status}`
+      `[Router] Event: ${event.event}, Order: ${order?.id || order?.razorpay_order_id}, Payment: ${payment?.id}, Status: ${payment?.status}`
     );
 
     // ============================================
     // DETERMINE WHICH APP (staging vs production)
     // ============================================
-    const { app, submission, supabaseClient } = await determineApp(order.id);
+    const orderId = order?.id || order?.razorpay_order_id;
+    console.log("[Router] Looking for order:", orderId);
+    const { app, submission, supabaseClient } = await determineApp(orderId);
 
     if (!submission || !app) {
       console.error("[Router] ❌ Order not found in either database");
 
       // Log incident to BOTH databases (try both)
+      const paymentId = payment?.id;
+      const orderIdForLog = order?.id || order?.razorpay_order_id;
+      const email = order?.notes?.email || order?.email || "unknown";
+      const amount = (payment?.amount || 0) / 100;
+      const status = payment?.status || "unknown";
+
       try {
         await supabase_staging.from("payment_incidents").insert({
           incident_type: "ORDER_NOT_FOUND",
-          razorpay_payment_id: payment.id,
-          razorpay_order_id: order.id,
-          email: order.notes?.email || "unknown",
-          amount: payment.amount / 100,
-          razorpay_status: payment.status,
+          razorpay_payment_id: paymentId,
+          razorpay_order_id: orderIdForLog,
+          email: email,
+          amount: amount,
+          razorpay_status: status,
           description: `Order not found in staging database`,
           status: "unresolved",
         });
@@ -119,11 +139,11 @@ async function handlePaymentWebhookRouter(req, res) {
       try {
         await supabase_production.from("payment_incidents").insert({
           incident_type: "ORDER_NOT_FOUND",
-          razorpay_payment_id: payment.id,
-          razorpay_order_id: order.id,
-          email: order.notes?.email || "unknown",
-          amount: payment.amount / 100,
-          razorpay_status: payment.status,
+          razorpay_payment_id: paymentId,
+          razorpay_order_id: orderIdForLog,
+          email: email,
+          amount: amount,
+          razorpay_status: status,
           description: `Order not found in production database`,
           status: "unresolved",
         });
@@ -142,10 +162,24 @@ async function handlePaymentWebhookRouter(req, res) {
     // ============================================
     // ROUTE TO APPROPRIATE HANDLER
     // ============================================
+    // Pass IDs separately since structure might vary
+    const paymentData = {
+      id: payment?.id,
+      amount: payment?.amount,
+      status: payment?.status,
+      method: payment?.method,
+      error: payment?.error,
+    };
+    
+    const orderData = {
+      id: order?.id || order?.razorpay_order_id,
+      notes: order?.notes || {},
+    };
+
     if (event.event === "payment.captured") {
       return await handleCapturedPayment(
-        payment,
-        order,
+        paymentData,
+        orderData,
         submission,
         supabaseClient,
         app,
@@ -155,8 +189,8 @@ async function handlePaymentWebhookRouter(req, res) {
 
     if (event.event === "payment.failed") {
       return await handleFailedPayment(
-        payment,
-        order,
+        paymentData,
+        orderData,
         submission,
         supabaseClient,
         app,
@@ -166,8 +200,8 @@ async function handlePaymentWebhookRouter(req, res) {
 
     if (event.event === "payment.cancelled") {
       return await handleCancelledPayment(
-        payment,
-        order,
+        paymentData,
+        orderData,
         submission,
         supabaseClient,
         app,
@@ -177,8 +211,8 @@ async function handlePaymentWebhookRouter(req, res) {
 
     if (event.event === "payment.authorized") {
       return await handleAuthorizedPayment(
-        payment,
-        order,
+        paymentData,
+        orderData,
         submission,
         supabaseClient,
         app,

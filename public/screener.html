@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ScreenCV - AI Resume Analysis</title>
+    <title>BIOSYNC - AI Resume Analysis</title>
     
     <!-- Razorpay Script -->
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
@@ -408,7 +408,7 @@
                 <line x1="20" y1="100" x2="50" y2="100" stroke="white" stroke-width="2" opacity="0.6"/>
                 <line x1="150" y1="100" x2="180" y2="100" stroke="white" stroke-width="2" opacity="0.6"/>
             </svg>
-            <p class="app-name">SCREENCV - TARGET MATCH</p>
+            <p class="app-name">BIOSYNC</p>
             <h1>Your Resume Vs The Job: AI-Powered Match Analysis</h1>
             <p>Know your fit. Get interview-ready. Land the role.</p>
             <div id="maintenanceNotice"></div>
@@ -521,7 +521,7 @@
 
         // ===== INIT =====
         async function init() {
-            console.log("[Init] Initializing screener...");
+            console.log("[Init] Initializing BIOSYNC screener...");
             try {
                 await checkToolStatus();
             } catch (error) {
@@ -542,7 +542,7 @@
 
                 if (data && data.maintenanceMode && data.maintenanceMode === true) {
                     const notice = document.getElementById("maintenanceNotice");
-                    notice.innerHTML = `<div class="maintenance-notice">⚠️ ${data.maintenanceMessage || "ScreenCV is under maintenance"}</div>`;
+                    notice.innerHTML = `<div class="maintenance-notice">⚠️ ${data.maintenanceMessage || "BIOSYNC is under maintenance"}</div>`;
                     
                     // 🔴 NEW: DISABLE THE FORM
                     const mainContent = document.getElementById("mainContent");
@@ -704,7 +704,7 @@
                     amount: orderData.order.amount,
                     currency: 'INR',
                     order_id: orderData.order.id,
-                    name: 'ScreenCV - TARGET MATCH',
+                    name: 'BIOSYNC',
                     description: `Resume Analysis for ${jobTitle}`,
                     image: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="95" fill="%23ff6b35" opacity="0.9"/><circle cx="100" cy="100" r="70" fill="%23ff8c42" opacity="0.95"/><circle cx="100" cy="100" r="45" fill="%23ffd93d" opacity="1"/><circle cx="100" cy="100" r="20" fill="white"/><g transform="translate(100, 100)"><line x1="-8" y1="-8" x2="8" y2="8" stroke="%23dc3545" stroke-width="3" stroke-linecap="round"/><line x1="8" y1="-8" x2="-8" y2="8" stroke="%23dc3545" stroke-width="3" stroke-linecap="round"/></g></svg>',
                     handler: function(response) {

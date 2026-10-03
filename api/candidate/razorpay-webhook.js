@@ -1,26 +1,68 @@
 // screencv/api/candidate/razorpay-webhook.js
-// IMPROVED: Handle ALL Razorpay webhook events with proper status tracking
-// Events handled: payment.captured, payment.failed, payment.cancelled, payment.authorized
-
+// Razorpay webhook: the safety net for payments.
+//
+// WHY IT EXISTS
+//  Normally the customer's browser reports a successful payment and
+//  razorpay-verify.js does the work. But the browser does not always report
+//  back: the tab is closed, the phone switches to a UPI app and the page
+//  reloads, the connection drops. Razorpay also notifies this address directly,
+//  so those customers still get their report.
+//
+// CHANGES
+//  1. The signature is checked with RAZORPAY_WEBHOOK_SECRET. It was being
+//     checked with the API key secret, which is a different value, so every
+//     genuine notification would have been rejected.
+//  2. The order id is read from the payment itself (payment.order_id). The old
+//     code read event.payload.order, which Razorpay does not send for payment
+//     events, so the handler crashed on every notification.
+//  3. A captured payment goes through the same once-only confirmation as the
+//     browser path (confirmPaymentAndStartAnalysis in razorpay-verify.js).
+//     Before, the webhook ran its own second analysis and sent a second email.
+//  4. Razorpay is answered straight away and the analysis continues afterwards.
+//     Before, the reply waited for the whole analysis, which makes Razorpay
+//     time out and send the same notification again.
+//  5. Repeated notifications for the same failed payment are recorded once.
+//
+// REQUIRED SETTING: RAZORPAY_WEBHOOK_SECRET, the secret typed in when the
+// webhook is created in the Razorpay dashboard. Test mode and Live mode have
+// separate webhooks and separate secrets.
 
 const crypto = require("crypto");
 const { supabase } = require("../../lib/supabase-client");
-const { RAZORPAY_KEY_SECRET } = require("../../lib/constants");
-const { analyzeResumeVsJob } = require("./analyze");
+const { RAZORPAY_WEBHOOK_SECRET } = require("../../lib/constants");
+const { confirmPaymentAndStartAnalysis } = require("./razorpay-verify");
 
-// Verify Razorpay webhook signature
+// Verify Razorpay webhook signature: HMAC-SHA256 of the raw body, keyed with
+// the webhook secret, compared in constant time.
 function verifyWebhookSignature(body, signature) {
-  const expectedSignature = crypto
-    .createHmac("sha256", RAZORPAY_KEY_SECRET)
-    .update(body)
-    .digest("hex");
+  if (!RAZORPAY_WEBHOOK_SECRET || !body || !signature) return false;
 
-  return expectedSignature === signature;
+  const expected = Buffer.from(
+    crypto.createHmac("sha256", RAZORPAY_WEBHOOK_SECRET).update(body).digest("hex"),
+    "utf8"
+  );
+  const received = Buffer.from(String(signature), "utf8");
+  return expected.length === received.length && crypto.timingSafeEqual(expected, received);
+}
+
+async function incidentExists(incidentType, paymentId) {
+  const { data } = await supabase
+    .from("payment_incidents")
+    .select("id")
+    .eq("incident_type", incidentType)
+    .eq("razorpay_payment_id", paymentId)
+    .limit(1);
+  return Array.isArray(data) && data.length > 0;
 }
 
 // Handle all payment webhook events
 async function handlePaymentWebhook(req, res) {
   try {
+    if (!RAZORPAY_WEBHOOK_SECRET) {
+      console.error("[Webhook] ❌ RAZORPAY_WEBHOOK_SECRET is not set - webhook cannot be verified");
+      return res.status(503).json({ error: "Webhook is not configured" });
+    }
+
     const signature = req.headers["x-razorpay-signature"];
     const body = req.rawBody; // Raw body for signature verification
 
@@ -29,10 +71,7 @@ async function handlePaymentWebhook(req, res) {
       return res.status(400).json({ error: "Missing webhook data" });
     }
 
-    // Verify signature
-    const isValid = verifyWebhookSignature(body, signature);
-
-    if (!isValid) {
+    if (!verifyWebhookSignature(body, signature)) {
       console.error("[Webhook] ❌ Invalid webhook signature!");
       return res.status(400).json({ error: "Invalid signature" });
     }
@@ -40,50 +79,34 @@ async function handlePaymentWebhook(req, res) {
     console.log("[Webhook] ✅ Signature verified");
 
     const event = JSON.parse(body);
-    const payment = event.payload.payment.entity;
-    const order = event.payload.order.entity;
+    const payment = event?.payload?.payment?.entity;
+
+    if (!payment || !payment.id) {
+      console.log(`[Webhook] ℹ️ Event ${event?.event} carries no payment - ignoring`);
+      return res.json({ success: true });
+    }
+
+    // payment.* events carry the order id on the payment; order.paid also sends an order object
+    const orderId = payment.order_id || event?.payload?.order?.entity?.id || null;
 
     console.log(
-      `[Webhook] Event: ${event.event}, Order: ${order.id}, Payment: ${payment.id}, Status: ${payment.status}`
+      `[Webhook] Event: ${event.event}, Order: ${orderId}, Payment: ${payment.id}, Status: ${payment.status}`
     );
 
-    // ============================================
-    // EVENT 1: payment.captured ✅
-    // ============================================
-    if (event.event === "payment.captured") {
-      console.log(`[Webhook] 💰 Processing CAPTURED payment ${payment.id}`);
-
-      return await handleCapturedPayment(payment, order, res);
+    if (event.event === "payment.captured" || event.event === "order.paid") {
+      return await handleCapturedPayment(payment, orderId, res);
     }
 
-    // ============================================
-    // EVENT 2: payment.failed ❌
-    // ============================================
     if (event.event === "payment.failed") {
-      console.warn(`[Webhook] ❌ Processing FAILED payment ${payment.id}`);
-
-      return await handleFailedPayment(payment, order, res);
+      return await handleFailedPayment(payment, orderId, res);
     }
 
-    // ============================================
-    // EVENT 3: payment.cancelled 🚫
-    // ============================================
-    if (event.event === "payment.cancelled") {
-      console.warn(`[Webhook] 🚫 Processing CANCELLED payment ${payment.id}`);
-
-      return await handleCancelledPayment(payment, order, res);
-    }
-
-    // ============================================
-    // EVENT 4: payment.authorized ⏳
-    // ============================================
     if (event.event === "payment.authorized") {
-      console.log(`[Webhook] ⏳ Processing AUTHORIZED payment ${payment.id}`);
-
-      return await handleAuthorizedPayment(payment, order, res);
+      // Nothing to do yet: payment.captured follows and is handled above
+      console.log(`[Webhook] ⏳ Payment ${payment.id} authorized, awaiting capture`);
+      return res.json({ success: true, message: "Authorized payment noted" });
     }
 
-    // Ignore all other events
     console.log(`[Webhook] ℹ️ Ignoring event: ${event.event}`);
     return res.json({ success: true });
 
@@ -91,391 +114,116 @@ async function handlePaymentWebhook(req, res) {
     console.error("[Webhook] Fatal error:", error.message);
     return res.status(500).json({
       success: false,
-      error: error.message,
+      error: "Webhook processing error",
     });
   }
 }
 
 // ============================================
-// HANDLER 1: CAPTURED PAYMENT ✅
+// CAPTURED PAYMENT ✅
 // ============================================
-async function handleCapturedPayment(payment, order, res) {
-  try {
-    // Get submission from order ID
-    const { data: submission, error: findError } = await supabase
-      .from("candidate_submissions")
-      .select("*")
-      .eq("razorpay_order_id", order.id)
-      .single();
+async function handleCapturedPayment(payment, orderId, res) {
+  const amountINR = payment.amount / 100;
 
-    if (findError || !submission) {
-      console.error("[Webhook] Submission not found for order:", order.id);
+  if (!orderId) {
+    console.error(`[Webhook] Captured payment ${payment.id} has no order id - cannot match a submission`);
+    return res.json({ success: false, error: "No order id on payment" });
+  }
 
-      // Log incident
+  const { data: submission, error: findError } = await supabase
+    .from("candidate_submissions")
+    .select("*")
+    .eq("razorpay_order_id", orderId)
+    .single();
+
+  if (findError || !submission) {
+    console.error("[Webhook] Submission not found for order:", orderId);
+
+    if (!(await incidentExists("SUBMISSION_NOT_FOUND", payment.id))) {
       await supabase.from("payment_incidents").insert({
         incident_type: "SUBMISSION_NOT_FOUND",
         razorpay_payment_id: payment.id,
-        razorpay_order_id: order.id,
-        candidate_name: null,  // Submission not found
-        email: order.notes?.email,
-        amount: payment.amount / 100,
-        razorpay_status: payment.status,
-        description: `No submission found for order ${order.id}`,
-        status: "unresolved",
-      });
-
-      return res.json({
-        success: false,
-        error: "Submission not found",
-      });
-    }
-
-    const amountINR = payment.amount / 100;
-
-    // Update submission with payment confirmation
-    const { error: updateError } = await supabase
-      .from("candidate_submissions")
-      .update({
-        razorpay_payment_id: payment.id,
-        payment_status: "captured",
-        payment_date: new Date().toISOString(),
-        payment_amount: amountINR,
-      })
-      .eq("id", submission.id);
-
-    if (updateError) {
-      console.error("[Webhook] Failed to update submission:", updateError);
-
-      // Log incident
-      await supabase.from("payment_incidents").insert({
-        incident_type: "DB_UPDATE_FAILED",
-        submission_id: submission.id,
-        razorpay_payment_id: payment.id,
-        razorpay_order_id: order.id,
-        candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture name
-        email: submission.email,
+        razorpay_order_id: orderId,
+        email: payment.email || null,
         amount: amountINR,
         razorpay_status: payment.status,
-        db_status: "UPDATE_FAILED",
-        description: `Failed to update submission: ${updateError.message}`,
+        description: `No submission found for order ${orderId}`,
         status: "unresolved",
-      });
-
-      return res.status(500).json({
-        success: false,
-        error: "Failed to update payment status",
       });
     }
 
-    console.log(
-      `[Webhook] ✅ Payment confirmed for submission ${submission.id}`
-    );
-
-    // ✅ INSERT INTO candidate_payments with VALID status
-    const { error: paymentInsertError } = await supabase
-      .from("candidate_payments")
-      .insert({
-        submission_id: submission.id,
-        candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
-        email: submission.email,
-        razorpay_order_id: order.id,
-        razorpay_payment_id: payment.id,
-        amount_inr: amountINR,
-        status: "captured",  // ✅ FIXED: Use "captured" not "completed"
-        payment_method: payment.method || "razorpay",
-        error_message: null,  // No error for successful payment
-        completed_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      });
-
-    if (paymentInsertError) {
-      console.error("[Webhook] Payment record insert error:", paymentInsertError);
-
-      // Log incident
-      await supabase.from("payment_incidents").insert({
-        incident_type: "PAYMENT_RECORD_INSERT_ERROR",
-        submission_id: submission.id,
-        razorpay_payment_id: payment.id,
-        razorpay_order_id: order.id,
-        candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture name
-        email: submission.email,
-        amount: amountINR,
-        razorpay_status: payment.status,
-        description: `Failed to insert payment record: ${paymentInsertError.message}`,
-        status: "unresolved",
-      });
-
-      // Don't fail - continue to analysis
-      console.warn("[Webhook] ⚠️ Payment record insert failed, but continuing...");
-    } else {
-      console.log(`[Webhook] ✅ candidate_payments record inserted`);
-    }
-
-    // Queue analysis job (or run immediately if no queue)
-    try {
-      console.log(`[Webhook] Starting analysis for submission ${submission.id}...`);
-
-      const analysisResult = await analyzeResumeVsJob(
-        submission.id,
-        submission.resume_text,
-        submission.job_description,
-        submission.job_title,
-        submission.email,
-        submission.feedback_token,
-        {
-          // Payment info for email
-          orderId: order.id,
-          paymentId: payment.id,
-          amount: amountINR,
-          timestamp: new Date().toISOString(),
-        }
-      );
-
-      if (!analysisResult.success) {
-        console.error(
-          "[Webhook] Analysis failed:",
-          analysisResult.error
-        );
-
-        // Log incident
-        await supabase.from("payment_incidents").insert({
-          incident_type: "ANALYSIS_FAILED",
-          submission_id: submission.id,
-          razorpay_payment_id: payment.id,
-          razorpay_order_id: order.id,
-          email: submission.email,
-          amount: amountINR,
-          razorpay_status: payment.status,
-          description: `Analysis failed: ${analysisResult.error}`,
-          status: "unresolved",
-        });
-
-        return res.json({
-          success: false,
-          error: "Analysis failed",
-        });
-      }
-
-      console.log(`[Webhook] ✅ Analysis complete and email sent`);
-
-      res.json({
-        success: true,
-        message: "Payment processed and analysis initiated",
-      });
-    } catch (analysisError) {
-      console.error("[Webhook] Unexpected error during analysis:", analysisError);
-
-      // Log incident
-      await supabase.from("payment_incidents").insert({
-        incident_type: "ANALYSIS_ERROR",
-        submission_id: submission.id,
-        razorpay_payment_id: payment.id,
-        razorpay_order_id: order.id,
-        email: submission.email,
-        amount: amountINR,
-        razorpay_status: payment.status,
-        description: `Unexpected error: ${analysisError.message}`,
-        status: "unresolved",
-      });
-
-      return res.status(500).json({
-        success: false,
-        error: "Analysis error",
-      });
-    }
-  } catch (error) {
-    console.error("[Webhook-Captured] Error:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    // 200 so Razorpay does not keep resending something we cannot act on
+    return res.json({ success: false, error: "Submission not found" });
   }
+
+  const result = await confirmPaymentAndStartAnalysis({
+    submission,
+    paymentId: payment.id,
+    orderId,
+    amountINR,
+    paymentMethod: payment.method,
+    razorpayStatus: payment.status,
+    source: "webhook",
+  });
+
+  if (!result.ok) {
+    // A non-200 reply makes Razorpay try again later, which is what we want here
+    return res.status(500).json({ success: false, error: "Failed to confirm payment" });
+  }
+
+  return res.json({
+    success: true,
+    message: result.alreadyProcessed
+      ? "Payment was already processed"
+      : "Payment confirmed, analysis started",
+  });
 }
 
 // ============================================
-// HANDLER 2: FAILED PAYMENT ❌
+// FAILED PAYMENT ❌
 // ============================================
-async function handleFailedPayment(payment, order, res) {
-  try {
-    const amountINR = payment.amount / 100;
-    const failureReason = payment.error?.description || "Payment was declined";
+async function handleFailedPayment(payment, orderId, res) {
+  const amountINR = payment.amount / 100;
+  const failureReason = payment.error_description || payment.error?.description || "Payment was declined";
 
-    console.warn(`[Webhook-Failed] Reason: ${failureReason}`);
+  console.warn(`[Webhook-Failed] Payment ${payment.id}: ${failureReason}`);
 
-    // Get submission from order ID
-    const { data: submission } = await supabase
+  // Razorpay may send the same notification more than once: record it once
+  if (await incidentExists("PAYMENT_FAILED", payment.id)) {
+    console.log(`[Webhook-Failed] ℹ️ Already recorded`);
+    return res.json({ success: true, message: "Failed payment already recorded" });
+  }
+
+  let submission = null;
+  if (orderId) {
+    const { data } = await supabase
       .from("candidate_submissions")
       .select("*")
-      .eq("razorpay_order_id", order.id)
+      .eq("razorpay_order_id", orderId)
       .single();
+    submission = data || null;
+  }
 
-    if (submission) {
-      // ✅ INSERT INTO candidate_payments with status="failed" + error message
-      const { error: paymentInsertError } = await supabase
-        .from("candidate_payments")
-        .insert({
-          submission_id: submission.id,
-          candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
-          email: submission.email,
-          razorpay_order_id: order.id,
-          razorpay_payment_id: payment.id,
-          amount_inr: amountINR,
-          status: "failed",  // ✅ Record the failure
-          payment_method: payment.method || "razorpay",
-          error_message: failureReason,  // ✅ CRITICAL: Store WHY it failed
-          created_at: new Date().toISOString(),
-        });
+  const { error: incidentError } = await supabase.from("payment_incidents").insert({
+    incident_type: "PAYMENT_FAILED",
+    submission_id: submission?.id || null,
+    razorpay_payment_id: payment.id,
+    razorpay_order_id: orderId,
+    email: submission?.email || payment.email || null,
+    amount: amountINR,
+    razorpay_status: payment.status,
+    description: failureReason,
+    status: "unresolved",
+  });
 
-      if (!paymentInsertError) {
-        console.log(`[Webhook-Failed] ✅ Failed payment record inserted`);
-      } else {
-        console.error("[Webhook-Failed] Failed to insert payment record:", paymentInsertError);
-      }
-    }
-
-    // Log incident
-    await supabase.from("payment_incidents").insert({
-      incident_type: "PAYMENT_FAILED",
-      submission_id: submission?.id,
-      razorpay_payment_id: payment.id,
-      razorpay_order_id: order.id,
-      candidate_name: submission?.candidate_name || "Unknown",  // ⭐ Capture name
-      email: submission?.email || order.notes?.email,
-      amount: amountINR,
-      razorpay_status: payment.status,
-      description: failureReason,
-      status: "unresolved",
-    });
-
+  if (incidentError) {
+    console.error("[Webhook-Failed] Could not record incident:", incidentError.message);
+  } else {
     console.log(`[Webhook-Failed] ✅ Incident logged`);
-
-    return res.json({
-      success: true,  // Return 200 to Razorpay (we processed the event)
-      message: "Failed payment recorded",
-    });
-  } catch (error) {
-    console.error("[Webhook-Failed] Error:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
   }
-}
 
-// ============================================
-// HANDLER 3: CANCELLED PAYMENT 🚫
-// ============================================
-async function handleCancelledPayment(payment, order, res) {
-  try {
-    const amountINR = payment.amount / 100;
-
-    console.warn(`[Webhook-Cancelled] User cancelled payment`);
-
-    // Get submission from order ID
-    const { data: submission } = await supabase
-      .from("candidate_submissions")
-      .select("*")
-      .eq("razorpay_order_id", order.id)
-      .single();
-
-    if (submission) {
-      // ✅ INSERT INTO candidate_payments with status="cancelled"
-      const { error: paymentInsertError } = await supabase
-        .from("candidate_payments")
-        .insert({
-          submission_id: submission.id,
-          candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
-          email: submission.email,
-          razorpay_order_id: order.id,
-          razorpay_payment_id: payment.id,
-          amount_inr: amountINR,
-          status: "cancelled",  // ✅ Record cancellation
-          payment_method: payment.method || "razorpay",
-          error_message: "Payment cancelled by user",
-          created_at: new Date().toISOString(),
-        });
-
-      if (!paymentInsertError) {
-        console.log(`[Webhook-Cancelled] ✅ Cancelled payment record inserted`);
-      }
-    }
-
-    // Log incident
-    await supabase.from("payment_incidents").insert({
-      incident_type: "PAYMENT_CANCELLED",
-      submission_id: submission?.id,
-      razorpay_payment_id: payment.id,
-      razorpay_order_id: order.id,
-      candidate_name: submission?.candidate_name || "Unknown",  // ⭐ Capture name
-      email: submission?.email || order.notes?.email,
-      amount: amountINR,
-      razorpay_status: payment.status,
-      description: "User cancelled payment",
-      status: "unresolved",
-    });
-
-    return res.json({
-      success: true,
-      message: "Cancelled payment recorded",
-    });
-  } catch (error) {
-    console.error("[Webhook-Cancelled] Error:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-}
-
-// ============================================
-// HANDLER 4: AUTHORIZED PAYMENT ⏳
-// ============================================
-async function handleAuthorizedPayment(payment, order, res) {
-  try {
-    const amountINR = payment.amount / 100;
-
-    console.log(`[Webhook-Authorized] Payment authorized, awaiting capture`);
-
-    // Get submission from order ID
-    const { data: submission } = await supabase
-      .from("candidate_submissions")
-      .select("*")
-      .eq("razorpay_order_id", order.id)
-      .single();
-
-    if (submission) {
-      // ✅ INSERT INTO candidate_payments with status="pending"
-      const { error: paymentInsertError } = await supabase
-        .from("candidate_payments")
-        .insert({
-          submission_id: submission.id,
-          candidate_name: submission.candidate_name || "Unknown",  // ⭐ Capture candidate name
-          email: submission.email,
-          razorpay_order_id: order.id,
-          razorpay_payment_id: payment.id,
-          amount_inr: amountINR,
-          status: "pending",  // Use "pending" for authorized but not captured
-          payment_method: payment.method || "razorpay",
-          error_message: "Payment authorized, awaiting capture",
-          created_at: new Date().toISOString(),
-        });
-
-      if (!paymentInsertError) {
-        console.log(`[Webhook-Authorized] ✅ Authorized payment record inserted`);
-      }
-    }
-
-    return res.json({
-      success: true,
-      message: "Authorized payment recorded",
-    });
-  } catch (error) {
-    console.error("[Webhook-Authorized] Error:", error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
+  // 200 to Razorpay: the event has been dealt with
+  return res.json({ success: true, message: "Failed payment recorded" });
 }
 
 module.exports = {

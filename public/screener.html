@@ -18,6 +18,11 @@
           instead of failing at the payment step.
        5. Error messages at the payment step stay on screen until the next
           attempt. They used to disappear after 5 seconds.
+       6. Access / discount codes. Step 1 has a code box. Where the site
+          requires a code (staging), nobody can move to step 2 without a valid
+          one. Elsewhere the box is optional and a valid code gives a discount.
+          The price on step 3 follows the code. The server checks the code
+          again at every later step, so this page is not the gatekeeper.
     -->
     
     <!-- Razorpay Script -->
@@ -318,6 +323,39 @@
             color: #667eea;
             font-weight: 700;
             margin: 15px 0;
+            text-align: center;
+        }
+
+        .price-was {
+            font-size: 18px;
+            color: #999;
+            font-weight: 500;
+            text-decoration: line-through;
+            margin-right: 10px;
+        }
+
+        .price-note {
+            text-align: center;
+            font-size: 13px;
+            color: #10b981;
+            font-weight: 600;
+            margin: -8px 0 10px;
+        }
+
+        .code-ok {
+            color: #0f7b53;
+            font-size: 13px;
+            margin-top: 8px;
+            font-weight: 600;
+            display: none;
+        }
+
+        .code-ok.show {
+            display: block;
+        }
+
+        .hidden {
+            display: none !important;
         }
 
         .benefits-list {
@@ -464,9 +502,15 @@
                     <span class="helper-text">📋 Please paste the ENTIRE job listing including: Location, Shift, Timings, Job Description, Skills Required, etc.</span>
                     <textarea id="jobDescription" placeholder="Paste the complete job description here..."></textarea>
                 </div>
+                <div class="form-group hidden" id="accessCodeGroup">
+                    <label id="accessCodeLabel" for="accessCode">Access Code</label>
+                    <span class="helper-text" id="accessCodeHelp">🔑 Enter the access code you were given.</span>
+                    <input type="text" id="accessCode" placeholder="e.g., TESTER-RAVI" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40">
+                    <div class="code-ok" id="accessCodeOk"></div>
+                </div>
                 <div class="error" id="step1Error"></div>
                 <div class="button-group">
-                    <button class="btn-next" onclick="nextStep(1)">Continue →</button>
+                    <button class="btn-next" id="step1Continue" onclick="nextStep(1)">Continue →</button>
                 </div>
             </div>
 
@@ -493,7 +537,8 @@
                     Get your AI-powered resume analysis
                 </p>
                 
-                <div class="price-tag">₹99</div>
+                <div class="price-tag"><span class="price-was hidden" id="priceWas">₹99</span><span id="priceNow">₹99</span></div>
+                <p class="price-note hidden" id="priceNote"></p>
 
                 <div class="benefits-list">
                     <p>Your match score, with the working shown</p>
@@ -512,7 +557,7 @@
                 <!-- Payment button -->
                 <div id="paymentContainer">
                     <button id="razorpayButton" class="btn-pay" onclick="handleRazorpayPayment()">
-                        💳 Pay ₹99 & Get Analysis
+                        💳 Pay <span id="payAmount">₹99</span> & Get Analysis
                     </button>
                 </div>
 
@@ -544,6 +589,97 @@
         // Logo for the Razorpay checkout window, as a base64 image
         const CHECKOUT_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj48Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9Ijk1IiBmaWxsPSIjZmY2YjM1IiBvcGFjaXR5PSIwLjkiLz48Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjcwIiBmaWxsPSIjZmY4YzQyIiBvcGFjaXR5PSIwLjk1Ii8+PGNpcmNsZSBjeD0iMTAwIiBjeT0iMTAwIiByPSI0NSIgZmlsbD0iI2ZmZDkzZCIgb3BhY2l0eT0iMSIvPjxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iMjAiIGZpbGw9IndoaXRlIi8+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTAwLCAxMDApIj48bGluZSB4MT0iLTgiIHkxPSItOCIgeDI9IjgiIHkyPSI4IiBzdHJva2U9IiNkYzM1NDUiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9IjgiIHkxPSItOCIgeDI9Ii04IiB5Mj0iOCIgc3Ryb2tlPSIjZGMzNTQ1IiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvZz48L3N2Zz4=";
 
+        // ===== ACCESS / DISCOUNT CODE =====
+        // Whether a code is required comes from the server (/api/tool-status).
+        // The code is checked by the server when Continue is pressed on step 1,
+        // and again by the server when the order is created and when the
+        // payment is confirmed.
+        const FULL_PRICE = 99;
+        let accessCodeRequired = false;
+        let appliedCode = null;   // { code, discountPercent, price } once a code has been accepted
+
+        function setupAccessCodeField(required) {
+            accessCodeRequired = required === true;
+            document.getElementById("accessCodeGroup").classList.remove("hidden");
+            if (accessCodeRequired) {
+                document.getElementById("accessCodeLabel").textContent = "Access Code";
+                document.getElementById("accessCodeHelp").textContent = "🔑 Enter the access code you were given. Each code works a limited number of times.";
+            } else {
+                document.getElementById("accessCodeLabel").textContent = "Discount Code (optional)";
+                document.getElementById("accessCodeHelp").textContent = "🏷️ If you have a code, enter it here. Otherwise leave this blank.";
+                document.getElementById("accessCode").placeholder = "";
+            }
+        }
+
+        function showPrice(price, discountPercent, code) {
+            const discounted = Number(price) > 0 && Number(price) < FULL_PRICE;
+            document.getElementById("priceNow").textContent = "₹" + (discounted ? price : FULL_PRICE);
+            document.getElementById("payAmount").textContent = "₹" + (discounted ? price : FULL_PRICE);
+            document.getElementById("priceWas").classList.toggle("hidden", !discounted);
+            const note = document.getElementById("priceNote");
+            note.classList.toggle("hidden", !discounted);
+            note.textContent = discounted ? discountPercent + "% off with code " + code : "";
+        }
+
+        // Returns true if step 1 may be left. Shows its own message if not.
+        async function checkAccessCode() {
+            const input = document.getElementById("accessCode");
+            const code = input.value.trim();
+            const errorEl = document.getElementById("step1Error");
+            const okEl = document.getElementById("accessCodeOk");
+            okEl.classList.remove("show");
+
+            if (!code && !accessCodeRequired) {
+                appliedCode = null;
+                showPrice(FULL_PRICE, 0, "");
+                return true;
+            }
+            if (!code) {
+                errorEl.textContent = "Please enter your access code.";
+                errorEl.classList.add("show");
+                return false;
+            }
+
+            const button = document.getElementById("step1Continue");
+            button.disabled = true;
+            button.textContent = "Checking code...";
+            try {
+                const response = await fetch(`${API_BASE}/candidate/check-code`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ code }),
+                });
+                const data = await response.json();
+
+                if (!response.ok || !data.success || !data.valid) {
+                    appliedCode = null;
+                    errorEl.textContent = (data && data.message) || "This access code could not be checked. Please try again.";
+                    errorEl.classList.add("show");
+                    return false;
+                }
+
+                appliedCode = data.applied ? { code: data.code, discountPercent: data.discountPercent || 0, price: data.price } : null;
+                showPrice(appliedCode ? appliedCode.price : FULL_PRICE, appliedCode ? appliedCode.discountPercent : 0, appliedCode ? appliedCode.code : "");
+
+                if (appliedCode) {
+                    const parts = ["Code accepted."];
+                    if (appliedCode.discountPercent > 0) parts.push(appliedCode.discountPercent + "% off: you pay ₹" + appliedCode.price + ".");
+                    if (typeof data.remaining === "number") parts.push(data.remaining + (data.remaining === 1 ? " use" : " uses") + " left.");
+                    okEl.textContent = "✓ " + parts.join(" ");
+                    okEl.classList.add("show");
+                }
+                return true;
+            } catch (error) {
+                console.error("[AccessCode] Error:", error);
+                errorEl.textContent = "This access code could not be checked. Please check your connection and try again.";
+                errorEl.classList.add("show");
+                return false;
+            } finally {
+                button.disabled = false;
+                button.textContent = "Continue →";
+            }
+        }
+
         // ===== INIT =====
         async function init() {
             console.log("[Init] Initializing BIOSYNC screener...");
@@ -565,6 +701,8 @@
                 
                 console.log("[ToolStatus] Response:", data);
 
+                setupAccessCodeField(data && data.accessCodeRequired === true);
+
                 if (data && data.maintenanceMode && data.maintenanceMode === true) {
                     const notice = document.getElementById("maintenanceNotice");
                     const box = document.createElement("div");
@@ -585,6 +723,9 @@
                 }
             } catch (error) {
                 console.error("[ToolStatus] Error:", error);
+                // Could not ask the server. Show the code box anyway; the server
+                // will insist on a code later if one is required.
+                setupAccessCodeField(false);
             }
         }
 
@@ -618,8 +759,11 @@
             window.scrollTo(0, 0);
         }
 
-        function nextStep(from) {
-            if (from === 1 && !validateStep1()) return;
+        async function nextStep(from) {
+            if (from === 1) {
+                if (!validateStep1()) return;
+                if (!(await checkAccessCode())) return;
+            }
             if (from === 2 && !validateStep2()) return;
             
             showStep(from + 1);
@@ -724,6 +868,7 @@
                 formData.append("jobDescription", jobDescription);
                 formData.append("resume", resumeFile);
                 formData.append("feedbackToken", generateFeedbackToken());
+                formData.append("accessCode", document.getElementById("accessCode").value.trim());
 
                 // Create Razorpay order (with file extraction server-side)
                 console.log('[Payment] Creating Razorpay order with file extraction...');
@@ -745,6 +890,11 @@
                 }
 
                 console.log('[Payment] ✅ Order created:', orderData.order.id);
+
+                // The server decides the price. Show exactly what it charged.
+                if (typeof orderData.price === 'number') {
+                    showPrice(orderData.price, orderData.discountPercent || 0, appliedCode ? appliedCode.code : '');
+                }
 
                 // Open Razorpay checkout
                 const razorpayOptions = {

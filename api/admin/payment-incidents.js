@@ -12,7 +12,7 @@
 //  3. A manual re-run is only marked "resolved" if the report email was sent.
 
 const { supabase } = require("../../lib/supabase-client");
-const { analyzeResumeVsJob } = require("../candidate/analyze");
+const { analyzeResumeVsJob, publicBaseUrl } = require("../candidate/analyze");
 
 function toInt(value, fallback, min, max) {
   const n = parseInt(value, 10);
@@ -171,6 +171,7 @@ async function resolveIncidentTriggerAnalysis(req, res) {
           paymentId: incident.razorpay_payment_id,
           amount: incident.amount,
           timestamp: new Date().toISOString(),
+          baseUrl: typeof publicBaseUrl === "function" ? publicBaseUrl(req) : "",
         }
       );
 

@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BIOSYNC Admin Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <!--
+      CHANGES
+       1. The login form no longer contains an email and password. They were
+          written into this page, so anyone who opened it could read them.
+       2. Login now relies on a session cookie set by the server. The password
+          is no longer kept in the page or sent with every request.
+       3. A page refresh keeps you logged in until the session expires (12 hours)
+          or you press Logout.
+       4. All text that comes from customers (names, emails, job titles) is
+          escaped before it is shown, so it cannot run as code in this page.
+       5. The "Avg Analysis Time" figure was a random number. It now shows
+          "n/a" until a real measurement exists.
+    -->
     <style>
         :root {
             --bg-primary: #f5f7fa;
@@ -691,12 +704,12 @@
         <div class="error-msg" id="errorMsg"></div>
         <div class="form-group">
             <label for="email">Email</label>
-            <input type="email" id="email" value="joraba73@gmail.com" placeholder="admin@example.com">
+            <input type="email" id="email" placeholder="admin@example.com" autocomplete="username">
         </div>
         <div class="form-group">
             <label for="password">Password</label>
             <div class="password-field-wrapper">
-                <input type="password" id="password" value="Adm1n$2325$cynraj" placeholder="Password">
+                <input type="password" id="password" placeholder="Password" autocomplete="current-password">
                 <button type="button" class="password-toggle" id="passwordToggle" onclick="togglePasswordVisibility()">👁️</button>
             </div>
         </div>
@@ -864,6 +877,8 @@
                         <option value="DB_UPDATE_FAILED">DB Update Failed</option>
                         <option value="ANALYSIS_FAILED">Analysis Failed</option>
                         <option value="ANALYSIS_ERROR">Analysis Error</option>
+                        <option value="REPORT_EMAIL_FAILED">Report Email Failed</option>
+                        <option value="PAYMENT_RECORD_INSERT_ERROR">Payment Record Insert Error</option>
                     </select>
                     <button class="toolbar-button" onclick="exportIncidentsCSV()">📥 Export CSV</button>
                 </div>
@@ -907,7 +922,7 @@
                     <div class="metric-box">
                         <h4>Avg Analysis Time</h4>
                         <div class="value" id="avgAnalysisTime">-</div>
-                        <div class="unit">seconds (estimated)</div>
+                        <div class="unit">not measured yet</div>
                     </div>
                     <div class="metric-box">
                         <h4>Cost Per Analysis</h4>
@@ -973,7 +988,6 @@
 
     <script>
         let adminEmail = '';
-        let adminPassword = '';
         let autoRefreshInterval = null;
         let autoRefreshTime = 0;
         let currentPaymentPage = 1;
@@ -998,10 +1012,32 @@
             { id: 'emailsSent', label: 'Emails Sent 📧' }
         ];
 
+        // ==================== SAFE OUTPUT ====================
+        // Names, emails and job titles come from customers. Escape them before
+        // they are placed into the page, so they are shown as text, never run.
+        function esc(value) {
+            return String(value ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // Only letters, digits and hyphens are allowed in a CSS class name
+        function safeClass(value) {
+            return String(value ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadSettings();
             initializeDatePickers();
+
+            ['email', 'password'].forEach(id => {
+                document.getElementById(id).addEventListener('keydown', e => {
+                    if (e.key === 'Enter') handleLogin();
+                });
+            });
+
+            checkSession();
         });
 
         // ==================== DARK MODE ====================
@@ -1013,13 +1049,20 @@
         function loadSettings() {
             const savedDarkMode = localStorage.getItem('darkMode') === 'true';
             const savedAutoRefresh = localStorage.getItem('autoRefresh') || 'off';
-            const savedCardVisibility = JSON.parse(localStorage.getItem('cardVisibility') || '{}');
+            let savedCardVisibility = {};
+            try {
+                savedCardVisibility = JSON.parse(localStorage.getItem('cardVisibility') || '{}') || {};
+            } catch (err) {
+                savedCardVisibility = {};
+            }
 
             if (savedDarkMode) {
                 document.body.classList.add('dark-mode');
             }
 
-            document.querySelector(`input[name="autoRefresh"][value="${savedAutoRefresh}"]`).checked = true;
+            const refreshRadio = Array.from(document.querySelectorAll('input[name="autoRefresh"]'))
+                .find(input => input.value === savedAutoRefresh);
+            if (refreshRadio) refreshRadio.checked = true;
 
             CARDS.forEach(card => {
                 const isVisible = savedCardVisibility[card.id] !== false;
@@ -1049,12 +1092,17 @@
             });
             localStorage.setItem('cardVisibility', JSON.stringify(cardVisibility));
 
-            setupAutoRefresh(parseInt(autoRefresh));
+            setupAutoRefresh(parseInt(autoRefresh) || 0);
         }
 
         function populateCardVisibilitySettings() {
             const container = document.getElementById('cardVisibilitySettings');
-            const savedVisibility = JSON.parse(localStorage.getItem('cardVisibility') || '{}');
+            let savedVisibility = {};
+            try {
+                savedVisibility = JSON.parse(localStorage.getItem('cardVisibility') || '{}') || {};
+            } catch (err) {
+                savedVisibility = {};
+            }
 
             container.innerHTML = CARDS.map(card => `
                 <div class="checkbox-item">
@@ -1076,13 +1124,14 @@
         // ==================== AUTO-REFRESH ====================
         function setupAutoRefresh(seconds) {
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
             autoRefreshTime = seconds;
 
             const indicator = document.getElementById('refreshIndicator');
-            if (seconds === 0) {
+            if (!seconds) {
                 indicator.innerHTML = 'Auto-refresh OFF';
             } else {
-                indicator.innerHTML = `<div class="refresh-dot"></div><span>Auto-refresh: ${seconds}s</span>`;
+                indicator.innerHTML = `<div class="refresh-dot"></div><span>Auto-refresh: ${Number(seconds)}s</span>`;
                 autoRefreshInterval = setInterval(() => {
                     loadStats();
                     loadPaymentOrders();
@@ -1107,21 +1156,55 @@
             }
         }
 
-        // ==================== LOGIN ====================
-        async function handleLogin() {
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
+        // ==================== LOGIN / SESSION ====================
+        // The server sets a session cookie at login. The browser sends it
+        // automatically with every request to /api/admin, so the password is
+        // used once, at login, and is not kept anywhere in this page.
+
+        function showLoginError(message) {
             const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = message;
+            errorMsg.style.display = message ? 'block' : 'none';
+        }
+
+        function enterDashboard(email) {
+            adminEmail = email || '';
+            showLoginError('');
+            document.getElementById('password').value = '';
+            showDashboard();
+            loadStats();
+            loadPaymentOrders();
+            loadAnalytics();
+            loadIncidents();
+            loadToolStatus();
+            setupAutoRefresh(parseInt(localStorage.getItem('autoRefresh')) || 0);
+        }
+
+        // On page load: if a session already exists, go straight to the dashboard
+        async function checkSession() {
+            try {
+                const response = await fetch('/api/admin/session', { credentials: 'same-origin' });
+                if (!response.ok) return;
+                const data = await response.json();
+                if (data.success) enterDashboard(data.email);
+            } catch (err) {
+                // Not logged in, or the server is unreachable: stay on the login form
+            }
+        }
+
+        async function handleLogin() {
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
 
             if (!email || !password) {
-                errorMsg.textContent = '❌ Email and password required';
-                errorMsg.style.display = 'block';
+                showLoginError('❌ Email and password required');
                 return;
             }
 
             try {
                 const response = await fetch('/api/admin/login', {
                     method: 'POST',
+                    credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
@@ -1129,23 +1212,12 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    adminEmail = email;
-                    adminPassword = password;
-                    errorMsg.style.display = 'none';
-                    showDashboard();
-                    loadStats();
-                    loadPaymentOrders();
-                    loadAnalytics();
-                    loadIncidents();
-                    loadToolStatus();
-                    setupAutoRefresh(parseInt(localStorage.getItem('autoRefresh') || '0'));
+                    enterDashboard(data.email || email);
                 } else {
-                    errorMsg.textContent = '❌ ' + (data.message || 'Login failed');
-                    errorMsg.style.display = 'block';
+                    showLoginError('❌ ' + (data.error || data.message || 'Login failed'));
                 }
             } catch (err) {
-                errorMsg.textContent = '❌ ' + err.message;
-                errorMsg.style.display = 'block';
+                showLoginError('❌ ' + err.message);
             }
         }
 
@@ -1154,23 +1226,39 @@
             document.getElementById('dashboard').style.display = 'flex';
         }
 
-        function handleLogout() {
+        function showLogin(message) {
             adminEmail = '';
-            adminPassword = '';
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
             document.getElementById('loginForm').style.display = 'flex';
             document.getElementById('dashboard').style.display = 'none';
+            showLoginError(message || '');
+        }
+
+        async function handleLogout() {
+            try {
+                await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+            } catch (err) {
+                // Even if the request fails, leave the dashboard
+            }
+            showLogin('');
         }
 
         // ==================== API CALLS ====================
         async function apiCall(endpoint, method = 'GET') {
             const response = await fetch(endpoint, {
                 method: method,
+                credentials: 'same-origin',
                 headers: {
-                    'x-admin-email': adminEmail,
-                    'x-admin-password': adminPassword
+                    'x-admin-email': adminEmail
                 }
             });
+
+            if (response.status === 401) {
+                showLogin('Your session has ended. Please log in again.');
+                throw new Error('Not logged in');
+            }
+
             return await response.json();
         }
 
@@ -1202,7 +1290,7 @@
                 const container = document.getElementById('paymentsContainer');
 
                 if (!data.success) {
-                    container.innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+                    container.innerHTML = '<div class="error">❌ Error: ' + esc(data.error) + '</div>';
                     return;
                 }
 
@@ -1218,23 +1306,25 @@
                 setupPaymentSearch();
                 updateLastUpdated('paymentsLastUpdated');
             } catch (err) {
-                document.getElementById('paymentsContainer').innerHTML = '<div class="error">❌ Error: ' + err.message + '</div>';
+                document.getElementById('paymentsContainer').innerHTML = '<div class="error">❌ Error: ' + esc(err.message) + '</div>';
             }
         }
+
+        function paymentRowHtml(payment) {
+            const statusClass = 'status-' + safeClass(payment.status || 'pending');
+            const codeStyle = 'background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 11px;';
+            return `<tr><td>${esc(payment.date)}</td><td>${esc(payment.email)}</td><td>${esc(payment.name)}</td><td>${esc(payment.jobTitle)}</td><td>${esc(payment.amount)}</td><td><code style="${codeStyle}">${esc(payment.razorpayOrderId)}</code></td><td><code style="${codeStyle}">${esc(payment.razorpayPaymentId)}</code></td><td><span class="status-badge ${statusClass}">${esc(payment.status)}</span></td></tr>`;
+        }
+
+        const PAYMENT_TABLE_HEAD = '<thead><tr><th>Date</th><th>Email</th><th>Name</th><th>Job Title</th><th>Amount</th><th>Order ID</th><th>Payment ID</th><th>Status</th></tr></thead>';
 
         function renderPaymentPage() {
             const start = (currentPaymentPage - 1) * itemsPerPage;
             const end = start + itemsPerPage;
             const pageData = allPayments.slice(start, end);
 
-            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${pageData.length} of ${allPayments.length} payments</p><table>
-                <thead><tr><th>Date</th><th>Email</th><th>Name</th><th>Job Title</th><th>Amount</th><th>Order ID</th><th>Payment ID</th><th>Status</th></tr></thead><tbody>`;
-
-            pageData.forEach(payment => {
-                const statusClass = 'status-' + (payment.status || 'pending').toLowerCase();
-                html += `<tr><td>${payment.date}</td><td>${payment.email}</td><td>${payment.name}</td><td>${payment.jobTitle}</td><td>${payment.amount}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 11px;">${payment.razorpayOrderId}</code></td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 11px;">${payment.razorpayPaymentId}</code></td><td><span class="status-badge ${statusClass}">${payment.status}</span></td></tr>`;
-            });
-
+            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${pageData.length} of ${allPayments.length} payments</p><table>${PAYMENT_TABLE_HEAD}<tbody>`;
+            pageData.forEach(payment => { html += paymentRowHtml(payment); });
             html += '</tbody></table>';
             document.getElementById('paymentsContainer').innerHTML = html;
 
@@ -1247,29 +1337,30 @@
             document.getElementById('paymentsPagination').innerHTML = paginationHtml;
         }
 
+        let paymentSearchReady = false;
         function setupPaymentSearch() {
             const searchInput = document.getElementById('paymentSearch');
-            if (!searchInput) return;
+            if (!searchInput || paymentSearchReady) return;
+            paymentSearchReady = true;
 
             searchInput.addEventListener('input', function() {
                 const searchTerm = this.value.toLowerCase();
-                const filtered = searchTerm ? allPayments.filter(p => {
+                if (!searchTerm) {
+                    renderPaymentPage();
+                    return;
+                }
+
+                const filtered = allPayments.filter(p => {
                     return (p.email || '').toLowerCase().includes(searchTerm) ||
                            (p.name || '').toLowerCase().includes(searchTerm) ||
                            (p.razorpayOrderId || '').toLowerCase().includes(searchTerm) ||
                            (p.razorpayPaymentId || '').toLowerCase().includes(searchTerm);
-                }) : allPayments;
-
-                const container = document.getElementById('paymentsContainer');
-                let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${filtered.length} of ${allPayments.length} payments</p><table>
-                    <thead><tr><th>Date</th><th>Email</th><th>Name</th><th>Job Title</th><th>Amount</th><th>Order ID</th><th>Payment ID</th><th>Status</th></tr></thead><tbody>`;
-
-                filtered.forEach(payment => {
-                    const statusClass = 'status-' + (payment.status || 'pending').toLowerCase();
-                    html += `<tr><td>${payment.date}</td><td>${payment.email}</td><td>${payment.name}</td><td>${payment.jobTitle}</td><td>${payment.amount}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 11px;">${payment.razorpayOrderId}</code></td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 11px;">${payment.razorpayPaymentId}</code></td><td><span class="status-badge ${statusClass}">${payment.status}</span></td></tr>`;
                 });
+
+                let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${filtered.length} of ${allPayments.length} payments</p><table>${PAYMENT_TABLE_HEAD}<tbody>`;
+                filtered.forEach(payment => { html += paymentRowHtml(payment); });
                 html += '</tbody></table>';
-                container.innerHTML = html;
+                document.getElementById('paymentsContainer').innerHTML = html;
                 document.getElementById('paymentsPagination').innerHTML = '';
             });
         }
@@ -1287,7 +1378,7 @@
                 const container = document.getElementById('analyticsContainer');
 
                 if (!data.success) {
-                    container.innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+                    container.innerHTML = '<div class="error">❌ Error: ' + esc(data.error) + '</div>';
                     return;
                 }
 
@@ -1304,22 +1395,23 @@
                 updateAnalyticsMetrics();
                 updateLastUpdated('analyticsLastUpdated');
             } catch (err) {
-                document.getElementById('analyticsContainer').innerHTML = '<div class="error">❌ Error: ' + err.message + '</div>';
+                document.getElementById('analyticsContainer').innerHTML = '<div class="error">❌ Error: ' + esc(err.message) + '</div>';
             }
         }
+
+        function analyticsRowHtml(row) {
+            return `<tr><td>${esc(row.date)}</td><td>${esc(row.submissions)}</td><td>${esc(row.analyzed)}</td><td>₹${esc(row.ibe)}</td><td>₹${esc(row.claudeCost)}</td><td>₹${esc(row.razorpayCost)}</td><td><strong>₹${esc(row.netProfit)}</strong></td></tr>`;
+        }
+
+        const ANALYTICS_TABLE_HEAD = '<thead><tr><th>Date</th><th>Submissions</th><th>Analyzed</th><th>IBE 💰</th><th>Claude Cost 🤖</th><th>Razorpay 💳</th><th>Net Profit 📈</th></tr></thead>';
 
         function renderAnalyticsPage() {
             const start = (currentAnalyticsPage - 1) * itemsPerPage;
             const end = start + itemsPerPage;
             const pageData = allAnalytics.slice(start, end);
 
-            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${pageData.length} of ${allAnalytics.length} records</p><table>
-                <thead><tr><th>Date</th><th>Submissions</th><th>Analyzed</th><th>IBE 💰</th><th>Claude Cost 🤖</th><th>Razorpay 💳</th><th>Net Profit 📈</th></tr></thead><tbody>`;
-
-            pageData.forEach(row => {
-                html += `<tr><td>${row.date}</td><td>${row.submissions}</td><td>${row.analyzed}</td><td>₹${row.ibe}</td><td>₹${row.claudeCost}</td><td>₹${row.razorpayCost}</td><td><strong>₹${row.netProfit}</strong></td></tr>`;
-            });
-
+            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${pageData.length} of ${allAnalytics.length} records</p><table>${ANALYTICS_TABLE_HEAD}<tbody>`;
+            pageData.forEach(row => { html += analyticsRowHtml(row); });
             html += '</tbody></table>';
             document.getElementById('analyticsContainer').innerHTML = html;
 
@@ -1373,13 +1465,16 @@
         }
 
         function filterAnalyticsByDate() {
-            const from = new Date(document.getElementById('dateFrom').value);
-            const to = new Date(document.getElementById('dateTo').value);
+            const fromValue = document.getElementById('dateFrom').value;
+            const toValue = document.getElementById('dateTo').value;
 
-            if (!from || !to) {
+            if (!fromValue || !toValue) {
                 alert('Please select both dates');
                 return;
             }
+
+            const from = new Date(fromValue);
+            const to = new Date(toValue);
 
             const filtered = allAnalytics.filter(a => {
                 const date = new Date(a.date);
@@ -1391,13 +1486,8 @@
                 return;
             }
 
-            const data = filtered;
-            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${data.length} records</p><table>
-                <thead><tr><th>Date</th><th>Submissions</th><th>Analyzed</th><th>IBE 💰</th><th>Claude Cost 🤖</th><th>Razorpay 💳</th><th>Net Profit 📈</th></tr></thead><tbody>`;
-
-            data.forEach(row => {
-                html += `<tr><td>${row.date}</td><td>${row.submissions}</td><td>${row.analyzed}</td><td>₹${row.ibe}</td><td>₹${row.claudeCost}</td><td>₹${row.razorpayCost}</td><td><strong>₹${row.netProfit}</strong></td></tr>`;
-            });
+            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${filtered.length} records</p><table>${ANALYTICS_TABLE_HEAD}<tbody>`;
+            filtered.forEach(row => { html += analyticsRowHtml(row); });
             html += '</tbody></table>';
             document.getElementById('analyticsContainer').innerHTML = html;
         }
@@ -1422,12 +1512,11 @@
                 const container = document.getElementById('incidentsContainer');
 
                 if (!data.success) {
-                    container.innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+                    container.innerHTML = '<div class="error">❌ Error: ' + esc(data.error) + '</div>';
                     return;
                 }
 
                 allIncidents = data.incidents || [];
-                const summary = data.summary || {};
 
                 if (allIncidents.length === 0) {
                     document.getElementById('incidentSummary').innerHTML = '✅ No incidents found';
@@ -1446,24 +1535,25 @@
                 setupIncidentTypeFilter();
                 updateLastUpdated('incidentsLastUpdated');
             } catch (err) {
-                document.getElementById('incidentsContainer').innerHTML = '<div class="error">❌ Error: ' + err.message + '</div>';
+                document.getElementById('incidentsContainer').innerHTML = '<div class="error">❌ Error: ' + esc(err.message) + '</div>';
             }
         }
+
+        function incidentRowHtml(incident) {
+            const statusClass = incident.status === 'unresolved' ? 'status-unresolved' : 'status-resolved';
+            const date = incident.created_at ? new Date(incident.created_at).toLocaleDateString() : 'N/A';
+            return `<tr><td>${esc(date)}</td><td><span style="background: #ffebee; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">${esc(incident.incident_type || 'UNKNOWN')}</span></td><td><strong>${esc(incident.candidate_name || 'Unknown')}</strong></td><td>${esc(incident.email || 'N/A')}</td><td>₹${esc(incident.amount || 'N/A')}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 10px;">${esc(incident.razorpay_order_id || 'N/A')}</code></td><td><span class="status-badge ${statusClass}">${esc(incident.status)}</span></td></tr>`;
+        }
+
+        const INCIDENT_TABLE_HEAD = '<thead><tr><th>Date</th><th>Type</th><th>Candidate</th><th>Email</th><th>Amount</th><th>Order ID</th><th>Status</th></tr></thead>';
 
         function renderIncidentsPage() {
             const start = (currentIncidentsPage - 1) * itemsPerPage;
             const end = start + itemsPerPage;
             const pageData = allIncidents.slice(start, end);
 
-            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${pageData.length} of ${allIncidents.length} incidents</p><table>
-                <thead><tr><th>Date</th><th>Type</th><th>Candidate</th><th>Email</th><th>Amount</th><th>Order ID</th><th>Status</th></tr></thead><tbody>`;
-
-            pageData.forEach(incident => {
-                const statusClass = incident.status === 'unresolved' ? 'status-unresolved' : 'status-resolved';
-                const date = incident.created_at ? new Date(incident.created_at).toLocaleDateString() : 'N/A';
-                html += `<tr><td>${date}</td><td><span style="background: #ffebee; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">${incident.incident_type || 'UNKNOWN'}</span></td><td><strong>${incident.candidate_name || 'Unknown'}</strong></td><td>${incident.email || 'N/A'}</td><td>₹${incident.amount || 'N/A'}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 10px;">${incident.razorpay_order_id || 'N/A'}</code></td><td><span class="status-badge ${statusClass}">${incident.status}</span></td></tr>`;
-            });
-
+            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${pageData.length} of ${allIncidents.length} incidents</p><table>${INCIDENT_TABLE_HEAD}<tbody>`;
+            pageData.forEach(incident => { html += incidentRowHtml(incident); });
             html += '</tbody></table>';
             document.getElementById('incidentsContainer').innerHTML = html;
 
@@ -1476,50 +1566,40 @@
             document.getElementById('incidentsPagination').innerHTML = paginationHtml;
         }
 
+        function applyIncidentFilters() {
+            const searchTerm = document.getElementById('incidentSearch').value.toLowerCase();
+            const typeFilter = document.getElementById('incidentTypeFilter').value;
+
+            if (!searchTerm && !typeFilter) {
+                renderIncidentsPage();
+                return;
+            }
+
+            const filtered = allIncidents.filter(i => {
+                const matchesSearch = !searchTerm || (i.email || '').toLowerCase().includes(searchTerm) ||
+                       (i.candidate_name || '').toLowerCase().includes(searchTerm) ||
+                       (i.razorpay_order_id || '').toLowerCase().includes(searchTerm) ||
+                       (i.incident_type || '').toLowerCase().includes(searchTerm);
+                const matchesType = !typeFilter || i.incident_type === typeFilter;
+                return matchesSearch && matchesType;
+            });
+
+            renderFilteredIncidents(filtered);
+        }
+
+        let incidentSearchReady = false;
         function setupIncidentSearch() {
             const searchInput = document.getElementById('incidentSearch');
-            if (!searchInput) return;
-
-            searchInput.addEventListener('input', function() {
-                const searchTerm = this.value.toLowerCase();
-                const typeFilter = document.getElementById('incidentTypeFilter').value;
-
-                const filtered = allIncidents.filter(i => {
-                    const matchesSearch = !searchTerm || (i.email || '').toLowerCase().includes(searchTerm) ||
-                           (i.candidate_name || '').toLowerCase().includes(searchTerm) ||
-                           (i.razorpay_order_id || '').toLowerCase().includes(searchTerm) ||
-                           (i.incident_type || '').toLowerCase().includes(searchTerm);
-                    const matchesType = !typeFilter || i.incident_type === typeFilter;
-                    return matchesSearch && matchesType;
-                });
-
-                renderFilteredIncidents(filtered);
-            });
+            if (!searchInput || incidentSearchReady) return;
+            incidentSearchReady = true;
+            searchInput.addEventListener('input', applyIncidentFilters);
         }
 
-        function setupIncidentTypeFilter() {
-            const typeFilter = document.getElementById('incidentTypeFilter');
-            if (typeFilter) {
-                typeFilter.addEventListener('change', function() {
-                    const searchTerm = document.getElementById('incidentSearch').value.toLowerCase();
-                    const typeFilter = this.value;
-
-                    const filtered = allIncidents.filter(i => {
-                        const matchesSearch = !searchTerm || (i.email || '').toLowerCase().includes(searchTerm) ||
-                               (i.candidate_name || '').toLowerCase().includes(searchTerm) ||
-                               (i.razorpay_order_id || '').toLowerCase().includes(searchTerm) ||
-                               (i.incident_type || '').toLowerCase().includes(searchTerm);
-                        const matchesType = !typeFilter || i.incident_type === typeFilter;
-                        return matchesSearch && matchesType;
-                    });
-
-                    renderFilteredIncidents(filtered);
-                });
-            }
-        }
+        // The type dropdown calls filterIncidentsByType() through its onchange attribute
+        function setupIncidentTypeFilter() {}
 
         function filterIncidentsByType() {
-            setupIncidentTypeFilter();
+            applyIncidentFilters();
         }
 
         function renderFilteredIncidents(incidents) {
@@ -1531,15 +1611,8 @@
                 return;
             }
 
-            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${incidents.length} incidents</p><table>
-                <thead><tr><th>Date</th><th>Type</th><th>Candidate</th><th>Email</th><th>Amount</th><th>Order ID</th><th>Status</th></tr></thead><tbody>`;
-
-            incidents.forEach(incident => {
-                const statusClass = incident.status === 'unresolved' ? 'status-unresolved' : 'status-resolved';
-                const date = incident.created_at ? new Date(incident.created_at).toLocaleDateString() : 'N/A';
-                html += `<tr><td>${date}</td><td><span style="background: #ffebee; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">${incident.incident_type || 'UNKNOWN'}</span></td><td><strong>${incident.candidate_name || 'Unknown'}</strong></td><td>${incident.email || 'N/A'}</td><td>₹${incident.amount || 'N/A'}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 10px;">${incident.razorpay_order_id || 'N/A'}</code></td><td><span class="status-badge ${statusClass}">${incident.status}</span></td></tr>`;
-            });
-
+            let html = `<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;">📊 Showing ${incidents.length} incidents</p><table>${INCIDENT_TABLE_HEAD}<tbody>`;
+            incidents.forEach(incident => { html += incidentRowHtml(incident); });
             html += '</tbody></table>';
             container.innerHTML = html;
             document.getElementById('incidentsPagination').innerHTML = '';
@@ -1548,7 +1621,7 @@
         function exportIncidentsCSV() {
             const headers = ['Date', 'Type', 'Candidate', 'Email', 'Amount', 'Order ID', 'Status'];
             const rows = allIncidents.map(i => [
-                new Date(i.created_at).toLocaleDateString(),
+                i.created_at ? new Date(i.created_at).toLocaleDateString() : '',
                 i.incident_type,
                 i.candidate_name,
                 i.email,
@@ -1575,7 +1648,7 @@
                 const uniqueCustomers = Object.keys(emailCount).length;
                 const repeatCustomers = Object.values(emailCount).filter(count => count > 1).length;
                 const repeatRate = uniqueCustomers > 0 ? ((repeatCustomers / uniqueCustomers) * 100).toFixed(1) : 0;
-                const avgSubmissions = (submissions.length / uniqueCustomers).toFixed(2);
+                const avgSubmissions = uniqueCustomers > 0 ? (submissions.length / uniqueCustomers).toFixed(2) : '0';
 
                 document.getElementById('uniqueCustomers').textContent = uniqueCustomers;
                 document.getElementById('repeatCustomers').textContent = repeatCustomers;
@@ -1627,10 +1700,12 @@
                 const analyzed = statsData.analyzedCount || 1;
                 const totalCost = statsData.claudeCost || 0;
                 const avgCostPerAnalysis = (totalCost / analyzed).toFixed(2);
-                const failedCount = statsData.totalSubmissions - statsData.analyzedCount;
-                const successRate = ((analyzed / statsData.totalSubmissions) * 100).toFixed(1);
+                const successRate = statsData.totalSubmissions > 0
+                    ? ((statsData.analyzedCount / statsData.totalSubmissions) * 100).toFixed(1)
+                    : '0';
 
-                document.getElementById('avgAnalysisTime').textContent = (10 + Math.random() * 5).toFixed(1);
+                // Analysis time is not recorded yet, so no figure is shown here.
+                document.getElementById('avgAnalysisTime').textContent = 'n/a';
                 document.getElementById('costPerAnalysis').textContent = avgCostPerAnalysis;
                 document.getElementById('successRate').textContent = successRate;
                 document.getElementById('totalAnalysisCost').textContent = totalCost.toFixed(2);
@@ -1718,10 +1793,19 @@
         }
 
         // ==================== UTILITIES ====================
+        // Makes one value safe for a CSV file: doubles any quote marks, and puts
+        // an apostrophe in front of values that a spreadsheet would otherwise
+        // treat as a formula (starting with = + - or @).
+        function csvCell(value) {
+            let text = String(value ?? '');
+            if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+            return '"' + text.replace(/"/g, '""') + '"';
+        }
+
         function downloadCSV(filename, headers, rows) {
-            let csv = headers.join(',') + '\n';
+            let csv = headers.map(csvCell).join(',') + '\n';
             rows.forEach(row => {
-                csv += row.map(cell => `"${cell}"`).join(',') + '\n';
+                csv += row.map(csvCell).join(',') + '\n';
             });
 
             const blob = new Blob([csv], { type: 'text/csv' });
@@ -1737,7 +1821,7 @@
             const element = document.getElementById(elementId);
             if (element) {
                 const now = new Date();
-                element.innerHTML = `<small>Last updated: ${now.toLocaleTimeString()}</small>`;
+                element.innerHTML = `<small>Last updated: ${esc(now.toLocaleTimeString())}</small>`;
             }
         }
     </script>

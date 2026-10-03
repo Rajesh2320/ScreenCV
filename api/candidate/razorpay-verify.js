@@ -1,14 +1,23 @@
 // screencv/api/candidate/razorpay-verify.js
-// Verify Razorpay payment, update submissions, INSERT into candidate_payments, and trigger analysis
+// Verify Razorpay payment, mark the submission paid, record the payment and start the analysis
+//
+// HOW A PAYMENT IS CONFIRMED
+//  Two things can tell the server that a customer has paid:
+//    - the customer's browser, straight after checkout (verifyPayment, below)
+//    - Razorpay itself, through the webhook (razorpay-webhook.js)
+//  Both call confirmPaymentAndStartAnalysis(). Whichever arrives first does the
+//  work; the other sees it is already done and does nothing. The customer gets
+//  exactly one report and one email, and is still served if the browser never
+//  reports back (tab closed, phone switched to a UPI app, connection lost).
 //
 // CHANGES
 //  1. Analysis is handed to waitUntil() so Vercel keeps the function alive
-//     until it finishes (previously the function froze once res.json() was sent).
+//     until it finishes.
 //  2. A failed analysis, or a report that could not be emailed, is logged as a
-//     failure and recorded in payment_incidents, instead of being logged as
-//     "completed ... score: undefined".
-//  3. A repeated verify call for an already-verified payment returns success
-//     without inserting a second payment row or running the analysis again.
+//     failure and recorded in payment_incidents.
+//  3. A payment is processed once only, however many times it is reported and
+//     whoever reports it (browser, webhook, retries). The "claim" is a single
+//     database update that can only succeed for one caller.
 //  4. The order must belong to the submission it is being applied to.
 //  5. Signature comparison is timing-safe.
 
@@ -22,8 +31,7 @@ const {
   RAZORPAY_KEY_SECRET,
 } = require("../../lib/constants");
 
-// Column on candidate_submissions that holds the Razorpay order id.
-// ASSUMPTION: adjust if your column is named differently.
+// Column on candidate_submissions that holds the Razorpay order id
 const ORDER_ID_COLUMN = "razorpay_order_id";
 
 const razorpay = new Razorpay({
@@ -60,7 +68,7 @@ async function runAnalysis(dbSubmission, paymentData) {
       failure = (result && (result.error || result.message)) || "Analysis returned no score";
     } else {
       console.log(
-        `[Verify] ✅ Analysis pipeline completed for submission ${dbSubmission.id}, ` +
+        `[Payment] ✅ Analysis pipeline completed for submission ${dbSubmission.id}, ` +
           `score: ${result.score} (${Date.now() - startedAt}ms)`
       );
 
@@ -79,7 +87,7 @@ async function runAnalysis(dbSubmission, paymentData) {
   if (!failure) return;
 
   console.error(
-    `[Verify] ❌ ${incidentType} for submission ${dbSubmission.id} ` +
+    `[Payment] ❌ ${incidentType} for submission ${dbSubmission.id} ` +
       `after ${Date.now() - startedAt}ms: ${failure}`
   );
 
@@ -97,14 +105,110 @@ async function runAnalysis(dbSubmission, paymentData) {
     });
     if (incidentError) throw incidentError;
   } catch (incidentErr) {
-    console.error(`[Verify] Could not record ${incidentType} incident:`, incidentErr);
+    console.error(`[Payment] Could not record ${incidentType} incident:`, incidentErr);
   }
 }
 
-// Verify payment from Razorpay
+// Marks the submission as paid, records the payment and starts the analysis.
+// Safe to call more than once, and from more than one place, for the same
+// payment: only the first call does anything.
+//
+// Returns { ok: true, alreadyProcessed: boolean } or { ok: false, error }.
+async function confirmPaymentAndStartAnalysis({ submission, paymentId, orderId, amountINR, paymentMethod, razorpayStatus, source }) {
+  const tag = `[Payment:${source}]`;
+  const now = new Date().toISOString();
+
+  // THE CLAIM. One UPDATE that only matches while the submission is not yet
+  // marked captured. If two callers race, the database lets exactly one win.
+  const { data: claimedRows, error: claimError } = await supabase
+    .from("candidate_submissions")
+    .update({
+      razorpay_payment_id: paymentId,
+      payment_status: "captured",
+      payment_date: now,
+      payment_amount: amountINR,
+    })
+    .eq("id", submission.id)
+    .or("payment_status.is.null,payment_status.neq.captured")
+    .select("id");
+
+  if (claimError) {
+    console.error(`${tag} DB update error:`, claimError);
+
+    await supabase.from("payment_incidents").insert({
+      incident_type: "DB_UPDATE_ERROR",
+      submission_id: submission.id,
+      razorpay_payment_id: paymentId,
+      razorpay_order_id: orderId,
+      email: submission.email,
+      amount: amountINR,
+      razorpay_status: razorpayStatus,
+      db_status: "UPDATE_FAILED",
+      description: `Failed to update payment status: ${claimError.message}`,
+      status: "unresolved",
+    });
+
+    return { ok: false, error: claimError.message };
+  }
+
+  if (!claimedRows || claimedRows.length === 0) {
+    console.log(`${tag} ℹ️ Submission ${submission.id} is already marked paid - nothing to do`);
+    return { ok: true, alreadyProcessed: true };
+  }
+
+  console.log(`${tag} ✅ Payment ${paymentId} confirmed for submission ${submission.id}`);
+
+  // Record the payment
+  const { error: paymentInsertError } = await supabase
+    .from("candidate_payments")
+    .insert({
+      submission_id: submission.id,
+      email: submission.email,
+      razorpay_order_id: orderId,
+      razorpay_payment_id: paymentId,
+      amount_inr: amountINR,
+      status: "captured",
+      payment_method: paymentMethod || "razorpay",
+      completed_at: now,
+      created_at: now,
+    });
+
+  if (paymentInsertError) {
+    console.error(`${tag} Payment record insert error:`, paymentInsertError);
+
+    await supabase.from("payment_incidents").insert({
+      incident_type: "PAYMENT_RECORD_INSERT_ERROR",
+      submission_id: submission.id,
+      razorpay_payment_id: paymentId,
+      razorpay_order_id: orderId,
+      email: submission.email,
+      amount: amountINR,
+      description: `Failed to insert payment record: ${paymentInsertError.message}`,
+      status: "unresolved",
+    });
+
+    // The payment itself is confirmed, so carry on to the analysis
+    console.warn(`${tag} ⚠️ Payment record insert failed, but continuing...`);
+  }
+
+  // Start the analysis. waitUntil() tells Vercel to keep this function running
+  // until it settles, after the response has been sent.
+  console.log(`${tag} 🚀 Starting analysis for submission ${submission.id}...`);
+  waitUntil(
+    runAnalysis(submission, {
+      orderId: orderId,
+      paymentId: paymentId,
+      amount: amountINR,
+    })
+  );
+
+  return { ok: true, alreadyProcessed: false };
+}
+
+// Verify payment from Razorpay (called by the customer's browser after checkout)
 async function verifyPayment(req, res) {
   try {
-    const { paymentId, orderId, signature, submissionId } = req.body;
+    const { paymentId, orderId, signature, submissionId } = req.body || {};
 
     if (!paymentId || !orderId || !signature || !submissionId) {
       return res.status(400).json({
@@ -146,7 +250,6 @@ async function verifyPayment(req, res) {
     if (fetchError || !dbSubmission) {
       console.error("[Verify] ❌ Submission not found:", fetchError);
 
-      // Log incident
       await supabase.from("payment_incidents").insert({
         incident_type: "SUBMISSION_NOT_FOUND",
         razorpay_payment_id: paymentId,
@@ -184,55 +287,19 @@ async function verifyPayment(req, res) {
       });
     }
 
-    // Already verified (double click, page refresh, client retry):
-    // do not insert a second payment row or run the analysis again.
-    if (
-      dbSubmission.payment_status === "captured" &&
-      dbSubmission.razorpay_payment_id === paymentId
-    ) {
-      console.log(`[Verify] ℹ️ Payment ${paymentId} already verified, skipping`);
-      return res.json({
-        success: true,
-        verified: true,
-        status: "CAPTURED",
-        message: "Payment already verified.",
-        submissionId: dbSubmission.id,
-        action: "PROCEED_WITH_ANALYSIS",
-      });
-    }
-
     // Scenario 1: Payment captured in Razorpay
     if (razorpayPayment.status === "captured") {
-      const amountINR = razorpayPayment.amount / 100;
+      const result = await confirmPaymentAndStartAnalysis({
+        submission: dbSubmission,
+        paymentId,
+        orderId,
+        amountINR: razorpayPayment.amount / 100,
+        paymentMethod: razorpayPayment.method,
+        razorpayStatus: razorpayPayment.status,
+        source: "browser",
+      });
 
-      // UPDATE candidate_submissions with payment info
-      const { error: updateError } = await supabase
-        .from("candidate_submissions")
-        .update({
-          razorpay_payment_id: paymentId,
-          payment_status: "captured",
-          payment_date: new Date().toISOString(),
-          payment_amount: amountINR,
-        })
-        .eq("id", dbSubmission.id);
-
-      if (updateError) {
-        console.error("[Verify] DB update error:", updateError);
-
-        // Log incident
-        await supabase.from("payment_incidents").insert({
-          incident_type: "DB_UPDATE_ERROR",
-          submission_id: dbSubmission.id,
-          razorpay_payment_id: paymentId,
-          razorpay_order_id: orderId,
-          email: dbSubmission.email,
-          amount: amountINR,
-          razorpay_status: razorpayPayment.status,
-          db_status: "UPDATE_FAILED",
-          description: `Failed to update payment status: ${updateError.message}`,
-          status: "unresolved",
-        });
-
+      if (!result.ok) {
         return res.status(500).json({
           success: false,
           error: "Failed to confirm payment",
@@ -240,75 +307,22 @@ async function verifyPayment(req, res) {
         });
       }
 
-      console.log(`[Verify] ✅ candidate_submissions updated for ${dbSubmission.id}`);
-
-      // INSERT INTO candidate_payments table
-      const { error: paymentInsertError } = await supabase
-        .from("candidate_payments")
-        .insert({
-          submission_id: dbSubmission.id,
-          email: dbSubmission.email,
-          razorpay_order_id: orderId,
-          razorpay_payment_id: paymentId,
-          amount_inr: amountINR,
-          status: "captured",
-          payment_method: razorpayPayment.method || "razorpay",
-          completed_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-        });
-
-      if (paymentInsertError) {
-        console.error("[Verify] Payment record insert error:", paymentInsertError);
-
-        // Log incident
-        await supabase.from("payment_incidents").insert({
-          incident_type: "PAYMENT_RECORD_INSERT_ERROR",
-          submission_id: dbSubmission.id,
-          razorpay_payment_id: paymentId,
-          razorpay_order_id: orderId,
-          email: dbSubmission.email,
-          amount: amountINR,
-          description: `Failed to insert payment record: ${paymentInsertError.message}`,
-          status: "unresolved",
-        });
-
-        // Don't fail the response - payment is confirmed, just record insert failed
-        console.warn("[Verify] ⚠️ Payment record insert failed, but continuing...");
-      } else {
-        console.log(`[Verify] ✅ candidate_payments record inserted for submission ${dbSubmission.id}`);
-      }
-
-      console.log(`[Verify] ✅ Payment confirmed for submission ${dbSubmission.id}`);
-
-      // TRIGGER ANALYSIS
-      // Still non-blocking for the user, but waitUntil() tells Vercel to keep
-      // this function running until the promise settles. A bare un-awaited
-      // promise is frozen as soon as the response is sent.
-      console.log(`[Verify] 🚀 Triggering analysis pipeline for submission ${dbSubmission.id}...`);
-
-      waitUntil(
-        runAnalysis(dbSubmission, {
-          orderId: orderId,
-          paymentId: paymentId,
-          amount: amountINR,
-        })
-      );
-
-      // Return success immediately (analysis continues after the response)
       return res.json({
         success: true,
         verified: true,
         status: "CAPTURED",
-        message: "Payment verified successfully! Analysis in progress...",
+        message: result.alreadyProcessed
+          ? "Payment already verified."
+          : "Payment verified successfully! Analysis in progress...",
         submissionId: dbSubmission.id,
         action: "PROCEED_WITH_ANALYSIS",
       });
     }
 
-    // Scenario 2: Payment not captured
+    // Scenario 2: Payment not captured.
+    // If Razorpay captures it a moment later, the webhook will pick it up.
     console.warn(`[Verify] Payment status: ${razorpayPayment.status}`);
 
-    // Log incident
     await supabase.from("payment_incidents").insert({
       incident_type: "PAYMENT_NOT_CAPTURED",
       submission_id: dbSubmission.id,
@@ -341,7 +355,7 @@ async function verifyPayment(req, res) {
 // Validate payment token (from frontend before submission)
 async function validatePaymentToken(req, res) {
   try {
-    const { orderId } = req.body;
+    const { orderId } = req.body || {};
 
     if (!orderId) {
       return res.status(400).json({
@@ -380,4 +394,6 @@ async function validatePaymentToken(req, res) {
 module.exports = {
   verifyPayment,
   validatePaymentToken,
+  confirmPaymentAndStartAnalysis,
+  runAnalysis,
 };

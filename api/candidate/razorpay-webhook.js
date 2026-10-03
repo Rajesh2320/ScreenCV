@@ -31,6 +31,7 @@ const crypto = require("crypto");
 const { supabase } = require("../../lib/supabase-client");
 const { RAZORPAY_WEBHOOK_SECRET } = require("../../lib/constants");
 const { confirmPaymentAndStartAnalysis } = require("./razorpay-verify");
+const { publicBaseUrl } = require("./analyze");
 
 // Verify Razorpay webhook signature: HMAC-SHA256 of the raw body, keyed with
 // the webhook secret, compared in constant time.
@@ -94,7 +95,7 @@ async function handlePaymentWebhook(req, res) {
     );
 
     if (event.event === "payment.captured" || event.event === "order.paid") {
-      return await handleCapturedPayment(payment, orderId, res);
+      return await handleCapturedPayment(payment, orderId, res, req);
     }
 
     if (event.event === "payment.failed") {
@@ -122,7 +123,7 @@ async function handlePaymentWebhook(req, res) {
 // ============================================
 // CAPTURED PAYMENT ✅
 // ============================================
-async function handleCapturedPayment(payment, orderId, res) {
+async function handleCapturedPayment(payment, orderId, res, req) {
   const amountINR = payment.amount / 100;
 
   if (!orderId) {
@@ -164,6 +165,7 @@ async function handleCapturedPayment(payment, orderId, res) {
     paymentMethod: payment.method,
     razorpayStatus: payment.status,
     source: "webhook",
+    baseUrl: typeof publicBaseUrl === "function" ? publicBaseUrl(req) : "",
   });
 
   if (!result.ok) {

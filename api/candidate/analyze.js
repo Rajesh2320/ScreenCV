@@ -141,6 +141,7 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       achievementScore: analysisData.achievement_score || 0,
       scoringLogic: analysisData.scoring_logic || "",
       scoreCalculation: analysisData.score_calculation || null,
+      practicalPoints: analysisData.practical_points || [],
       matchCategory: analysisData.match_category || "Partial Match",
       categoryEvidence: analysisData.category_evidence || "",
       scoringBreakdown: analysisData.factor_scores || {},

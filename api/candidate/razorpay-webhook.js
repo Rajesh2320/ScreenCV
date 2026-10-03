@@ -22,6 +22,9 @@
 //     Before, the reply waited for the whole analysis, which makes Razorpay
 //     time out and send the same notification again.
 //  5. Repeated notifications for the same failed payment are recorded once.
+//  6. In test mode, a notification for an order this site did not create is
+//     ignored without raising an incident (staging and production can share
+//     one Razorpay account's test keys).
 //
 // REQUIRED SETTING: RAZORPAY_WEBHOOK_SECRET, the secret typed in when the
 // webhook is created in the Razorpay dashboard. Test mode and Live mode have
@@ -29,7 +32,7 @@
 
 const crypto = require("crypto");
 const { supabase } = require("../../lib/supabase-client");
-const { RAZORPAY_WEBHOOK_SECRET } = require("../../lib/constants");
+const { RAZORPAY_WEBHOOK_SECRET, RAZORPAY_MODE } = require("../../lib/constants");
 const { confirmPaymentAndStartAnalysis } = require("./razorpay-verify");
 const { publicBaseUrl } = require("./analyze");
 
@@ -139,6 +142,15 @@ async function handleCapturedPayment(payment, orderId, res, req) {
 
   if (findError || !submission) {
     console.error("[Webhook] Submission not found for order:", orderId);
+
+    // In test mode, one Razorpay account can serve more than one site (staging
+    // and production both on test keys), and each site then hears about the
+    // other's test payments. That is expected, so it is only noted in the log.
+    // With live keys, a paid order with no submission is a real incident.
+    if (RAZORPAY_MODE !== "live") {
+      console.warn("[Webhook] ℹ️ Test mode: this order was probably created by another site using the same test keys - ignored");
+      return res.json({ success: true, message: "Order not from this site (test mode)" });
+    }
 
     if (!(await incidentExists("SUBMISSION_NOT_FOUND", payment.id))) {
       await supabase.from("payment_incidents").insert({

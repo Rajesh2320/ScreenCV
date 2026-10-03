@@ -21,7 +21,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const REPORT_LINK_DAYS = 30;
 // If a report is not finished this long after payment, tell the customer it is delayed
 const DELAYED_AFTER_SECONDS = 150;
-const FAILURE_INCIDENTS = ["ANALYSIS_FAILED", "ANALYSIS_ERROR", "REPORT_EMAIL_FAILED"];
+const FAILURE_INCIDENTS = ["ANALYSIS_FAILED", "ANALYSIS_ERROR", "REPORT_EMAIL_FAILED", "ACCESS_CODE_EXHAUSTED"];
 
 function secondsBetween(startIso, endIso) {
   const start = Date.parse(startIso);
@@ -111,12 +111,17 @@ async function getReportStatus(req, res) {
       .limit(5);
     const incidentTypes = (Array.isArray(incidents) ? incidents : []).map((incident) => incident.incident_type);
 
+    // A test payment made with an access code that had no uses left: no report is coming
+    if (!review && incidentTypes.includes("ACCESS_CODE_EXHAUSTED")) {
+      return res.json({ ...base, stage: "code_used_up" });
+    }
+
     // The report exists but the email could not be sent: the customer can still read it here
     if (review && incidentTypes.includes("REPORT_EMAIL_FAILED")) {
       return res.json({ ...base, stage: "ready_no_email" });
     }
 
-    if (incidentTypes.some((type) => type !== "REPORT_EMAIL_FAILED")) {
+    if (incidentTypes.some((type) => type !== "REPORT_EMAIL_FAILED" && type !== "ACCESS_CODE_EXHAUSTED")) {
       return res.json({ ...base, stage: "delayed" });
     }
 

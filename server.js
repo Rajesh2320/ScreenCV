@@ -1,5 +1,9 @@
 // screencv/server.js
 // Simple Express server - back to basics, no routing complexity
+//
+// CHANGE: every address under /api/admin now passes through adminGate, which
+// requires a logged-in admin session. The only exceptions are the login,
+// logout and public tool-status addresses (see lib/admin-auth.js).
 
 require("dotenv").config({ path: ".env.local", override: true });
 console.log("[OK] ✅ Environment loaded (local or Vercel)");
@@ -9,9 +13,28 @@ const fileUpload = require("express-fileupload");
 const path = require("path");
 const { supabase } = require("./lib/supabase-client");
 
+// Admin session gate. If the file cannot be loaded for any reason, admin
+// access is refused outright; the public site keeps working.
+let adminGate;
+try {
+  ({ adminGate } = require("./lib/admin-auth"));
+} catch (err) {
+  console.error("[Server] ❌ Could not load lib/admin-auth.js - all admin access is DISABLED:", err.message);
+  adminGate = (req, res) => res.status(503).json({ success: false, error: "Admin access is unavailable" });
+}
+
 // Import API handlers
 const { submitResume } = require("./api/candidate/submit.js");
-const adminRoutes = require("./api/admin/routes");
+
+// Admin routes depend on lib/admin-auth.js too. Same rule: if they cannot be
+// loaded, admin access is refused and the public site keeps working.
+let adminRoutes;
+try {
+  adminRoutes = require("./api/admin/routes");
+} catch (err) {
+  console.error("[Server] ❌ Could not load api/admin/routes.js - admin routes are DISABLED:", err.message);
+  adminRoutes = (req, res) => res.status(503).json({ success: false, error: "Admin access is unavailable" });
+}
 
 // Feedback routes
 const feedbackRoutes = require("./api/candidate/feedback");
@@ -73,6 +96,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
 app.use(express.static("public"));
+
+// ============================================
+// 🔒 ADMIN GATE
+// Must stay ABOVE every /api/admin route below.
+// ============================================
+
+app.use("/api/admin", adminGate);
+
+console.log("[Server] ✅ Admin session gate registered");
 
 // ============================================
 // PUBLIC: TOOL STATUS

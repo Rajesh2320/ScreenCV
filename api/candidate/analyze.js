@@ -25,6 +25,10 @@
 //     cost totals saved to the database cover both calls.
 // 10. Passes the score calculation to the report, so the report can show how
 //     the overall score was worked out from the requirement rows.
+// 12. The email uses one brand name (BIOSYNC, or the BRAND_NAME setting), and
+//     carries a tag in the subject and footer whenever it did not come from a
+//     live payment: "[STAGING · TEST PAYMENT]" on staging, "[TEST PAYMENT]"
+//     on production with test keys, nothing with live keys.
 // 11. The email now has a "View your report" button that opens the report as
 //     a web page, and says how many requirements were checked and how long it
 //     took (when it was quick). The site address for the link comes from the
@@ -34,6 +38,23 @@ const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis, generateCoachingExtras } = require("../../lib/claude-scoring");
 const { generateRecruiterReportHTML, replaceFeedbackToken } = require("../../lib/html-generator-recruiter");
 const { sendEmailWithPDF } = require("../../lib/nodemailer-sender");
+const { RAZORPAY_MODE } = require("../../lib/constants");
+
+// The name customers see in the email. One place to change it.
+const BRAND_NAME = (process.env.BRAND_NAME || "").trim() || "BIOSYNC";
+
+// Marks emails that did not come from a live, customer-facing payment, so a
+// test email can never be mistaken for a real one:
+//   SITE_LABEL setting (for example "STAGING") -> shown if present
+//   RAZORPAY_MODE other than "live"            -> "TEST PAYMENT"
+// With live keys and no SITE_LABEL there is no tag at all.
+function environmentTag() {
+  const parts = [];
+  const label = (process.env.SITE_LABEL || "").toUpperCase().replace(/[^A-Z0-9 -]/g, "").trim().slice(0, 20);
+  if (label) parts.push(label);
+  if (RAZORPAY_MODE !== "live") parts.push("TEST PAYMENT");
+  return parts.join(" · ");
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({
@@ -252,22 +273,28 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       // The rating page is not live yet, so the email asks for feedback by
       // reply instead of linking to /feedback?token=... (restore the link here
       // once that page works).
+      const envTag = environmentTag();
+      const envNote = envTag
+        ? `<p style="font-size: 12px; color: #999; border-top: 1px solid #eee; padding-top: 10px; margin-top: 20px;">${escapeHtml(envTag)}: this email was sent from a test set-up${RAZORPAY_MODE !== "live" ? ", and no real payment was taken" : ""}.</p>`
+        : "";
+
       const emailBody = `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <p>Hello,</p>
-          <p>Thank you for choosing ScreenCV.</p>
+          <p>Thank you for choosing ${escapeHtml(BRAND_NAME)}.</p>
           <p>Your analysis report for the <strong>${escapeHtml(jobTitle)}</strong> position${companyName ? ` at <strong>${escapeHtml(companyName)}</strong>` : ""} is ready${reportUrl ? "" : " and attached to this email"}.</p>
           ${speedLine}
           ${viewButton}
-          <p>We would value your feedback. If you have any comments on the report, or suggestions for how we can improve ScreenCV, simply reply to this email.</p>
-          <p>Regards,<br>Team ScreenCV</p>
+          <p>We would value your feedback. If you have any comments on the report, or suggestions for how we can improve ${escapeHtml(BRAND_NAME)}, simply reply to this email.</p>
+          <p>Regards,<br>Team ${escapeHtml(BRAND_NAME)}</p>
+          ${envNote}
         </div>
       `;
 
-      const emailSubject = `ScreenCV Report - ${String(jobTitle ?? "").replace(/[\r\n]+/g, " ")}`;
+      const emailSubject = `${envTag ? `[${envTag}] ` : ""}${BRAND_NAME} Report - ${String(jobTitle ?? "").replace(/[\r\n]+/g, " ")}`;
       const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
       const safeName = candidateName.replace(/[^\p{L}\p{N}._-]+/gu, '_');
-      const fileName = `ScreenCV_${safeName}_${Date.now()}.html`;
+      const fileName = `${BRAND_NAME.replace(/[^A-Za-z0-9]+/g, "")}_Report_${safeName}_${Date.now()}.html`;
 
       await sendEmailWithPDF({
         to: candidateEmail,

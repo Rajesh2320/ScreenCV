@@ -3,7 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analysis Complete - ScreenCV</title>
+    <title>Your Report - BIOSYNC</title>
+    <!--
+      CHANGES
+       1. After a successful payment this page now shows real progress: payment
+          received, analysing, sending, done. It asks the server every few
+          seconds (/api/candidate/status), so each step shown has actually
+          happened. A timer runs alongside.
+       2. When the report is ready it says how many job requirements were
+          checked and how long it took, and offers a "View your report" button.
+       3. If the report is delayed, or the email could not be sent, the page
+          says so plainly instead of promising it has arrived.
+       4. The "Payment Failed" and "Payment Cancelled" views are unchanged.
+    -->
     <style>
         * {
             margin: 0;
@@ -42,7 +54,6 @@
             animation: scaleIn 0.6s ease-out;
         }
 
-        /* Status icon colors */
         .status-icon.success {
             background: #27AE60;
         }
@@ -78,15 +89,15 @@
 
         h1 {
             color: #2C3E50;
-            font-size: 28px;
-            margin-bottom: 15px;
+            font-size: 26px;
+            margin-bottom: 12px;
             font-weight: 700;
         }
 
         .subtitle {
             color: #7F8C8D;
             font-size: 14px;
-            margin-bottom: 30px;
+            margin-bottom: 24px;
             line-height: 1.6;
         }
 
@@ -135,7 +146,7 @@
         .action-buttons {
             display: flex;
             gap: 12px;
-            margin-top: 30px;
+            margin-top: 26px;
             flex-wrap: wrap;
         }
 
@@ -223,33 +234,128 @@
             margin-top: 30px;
         }
 
-        .features {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin: 25px 0;
-            text-align: center;
-        }
-
-        .feature {
-            padding: 15px;
-            background: #F8F9FA;
-            border-radius: 8px;
-        }
-
-        .feature-icon {
-            font-size: 24px;
-            margin-bottom: 8px;
-        }
-
-        .feature-text {
-            color: #555;
-            font-size: 13px;
-            font-weight: 500;
-        }
-
         .hidden {
             display: none !important;
+        }
+
+        /* ----- Progress ----- */
+        .timer {
+            font-size: 40px;
+            font-weight: 700;
+            color: #667eea;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 1px;
+            margin: 6px 0 4px;
+        }
+
+        .timer.finished {
+            color: #27AE60;
+        }
+
+        .timer-label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+        }
+
+        .steps {
+            list-style: none;
+            text-align: left;
+            margin: 0 auto 8px;
+            max-width: 360px;
+        }
+
+        .steps li {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 11px 0;
+            font-size: 15px;
+            color: #AAB2BD;
+            border-bottom: 1px solid #F0F2F5;
+        }
+
+        .steps li:last-child {
+            border-bottom: none;
+        }
+
+        .step-dot {
+            flex: 0 0 26px;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            border: 2px solid #D5DAE0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .steps li.active {
+            color: #2C3E50;
+            font-weight: 600;
+        }
+
+        .steps li.active .step-dot {
+            border-color: #E3E7FB;
+            border-top-color: #667eea;
+            animation: spin 0.9s linear infinite;
+        }
+
+        .steps li.done {
+            color: #2C3E50;
+        }
+
+        .steps li.done .step-dot {
+            background: #27AE60;
+            border-color: #27AE60;
+        }
+
+        .steps li.done .step-dot::after {
+            content: "✓";
+        }
+
+        .steps li.problem {
+            color: #B9770E;
+            font-weight: 600;
+        }
+
+        .steps li.problem .step-dot {
+            background: #F39C12;
+            border-color: #F39C12;
+        }
+
+        .steps li.problem .step-dot::after {
+            content: "!";
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .result-line {
+            color: #2C3E50;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 8px 0;
+        }
+
+        .result-line.small {
+            color: #7F8C8D;
+            font-size: 13px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .steps li.active .step-dot,
+            .status-icon,
+            .checkmark-animation,
+            .x-animation {
+                animation: none;
+            }
         }
 
         @media (max-width: 480px) {
@@ -258,7 +364,7 @@
             }
 
             h1 {
-                font-size: 24px;
+                font-size: 22px;
             }
 
             .action-buttons {
@@ -269,60 +375,64 @@
                 width: 100%;
             }
 
-            .features {
-                grid-template-columns: 1fr;
+            .timer {
+                font-size: 34px;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Success Status -->
-        <div id="success-view">
+        <!-- Paid: live progress -->
+        <div id="progress-view" class="hidden">
+            <h1 id="progressTitle">Payment received</h1>
+            <p class="subtitle" id="progressSubtitle">We are preparing your report now. You can keep this page open and watch it happen.</p>
+
+            <div class="timer" id="timer" aria-hidden="true">0:00</div>
+            <div class="timer-label" id="timerLabel">Time so far</div>
+
+            <ul class="steps" id="steps" aria-live="polite">
+                <li id="step-payment" class="active"><span class="step-dot"></span><span>Payment received</span></li>
+                <li id="step-analysing"><span class="step-dot"></span><span>Analysing your resume against the job</span></li>
+                <li id="step-sending"><span class="step-dot"></span><span>Preparing and sending your report</span></li>
+                <li id="step-done"><span class="step-dot"></span><span>Report sent to your inbox</span></li>
+            </ul>
+
+            <div class="info-box success hidden" id="resultBox">
+                <p class="result-line"><strong id="resultHeadline">Your report is ready.</strong></p>
+                <p class="result-line" id="resultDetail"></p>
+                <p class="result-line small" id="resultEmail"></p>
+            </div>
+
+            <div class="info-box cancelled hidden" id="delayBox">
+                <p class="result-line"><strong id="delayHeadline">This is taking longer than usual.</strong></p>
+                <p class="result-line" id="delayDetail">Your payment is safe and your report will be emailed to you as soon as it is ready. You can close this page.</p>
+            </div>
+
+            <div class="action-buttons hidden" id="resultActions">
+                <a href="#" id="viewReportBtn" class="btn btn-primary hidden" target="_blank" rel="noopener">View your report</a>
+                <a href="/" class="btn btn-secondary">Analyse another resume</a>
+            </div>
+        </div>
+
+        <!-- Paid, but no submission id to follow: plain confirmation -->
+        <div id="success-view" class="hidden">
             <div class="status-icon success">
                 <svg viewBox="0 0 24 24" class="checkmark-animation">
                     <polyline points="20 6 9 17 4 12"></polyline>
                 </svg>
             </div>
 
-            <h1>Payment Successful! ✓</h1>
-            <p class="subtitle">Your report is being generated and will arrive in your email within 2-3 minutes.</p>
+            <h1>Payment successful</h1>
+            <p class="subtitle">Your report is being prepared and will arrive in your email shortly.</p>
 
             <div class="info-box success">
-                <p><strong>📧 Check Your Email</strong></p>
-                <p>Your detailed analysis report has been sent to your registered email address. Please check your inbox and spam folder.</p>
-            </div>
-
-            <div class="info-box success">
-                <p><strong>📄 Your Report Includes:</strong></p>
-                <p>✓ Match Score breakdown</p>
-                <p>✓ Your key strengths</p>
-                <p>✓ Areas to improve</p>
-                <p>✓ Likely interview questions</p>
-                <p>✓ Action plan & recommendations</p>
-            </div>
-
-            <div class="features">
-                <div class="feature">
-                    <div class="feature-icon">⚡</div>
-                    <div class="feature-text">Instant Analysis</div>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🎯</div>
-                    <div class="feature-text">AI-Powered</div>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">📱</div>
-                    <div class="feature-text">Mobile Friendly</div>
-                </div>
-                <div class="feature">
-                    <div class="feature-icon">🔒</div>
-                    <div class="feature-text">Secure & Private</div>
-                </div>
+                <p><strong>📧 Check your email</strong></p>
+                <p>Your analysis report is sent to the email address you entered. If you don't see it within a few minutes, please check your spam folder.</p>
             </div>
 
             <div class="action-buttons">
-                <a href="/" class="btn btn-primary">Analyze Another Resume</a>
+                <a href="/" class="btn btn-primary">Analyse another resume</a>
             </div>
         </div>
 
@@ -338,7 +448,7 @@
             <h1>Payment Failed ❌</h1>
             <p class="subtitle">We couldn't process your payment. Please try again with a different method.</p>
 
-            <div id="error-message" class="error-message"></div>
+            <div id="error-message" class="error-message hidden"></div>
 
             <div class="info-box failed">
                 <p><strong>Why did this happen?</strong></p>
@@ -351,7 +461,7 @@
 
             <div class="action-buttons">
                 <a href="/" class="btn btn-danger">Retry Payment</a>
-                <a href="/" class="btn btn-secondary">Analyze Another Resume</a>
+                <a href="/" class="btn btn-secondary">Analyse another resume</a>
             </div>
         </div>
 
@@ -369,53 +479,233 @@
 
             <div class="info-box cancelled">
                 <p><strong>Want to continue?</strong></p>
-                <p>You can retry the payment whenever you're ready. Your resume details have been saved.</p>
+                <p>You can retry the payment whenever you're ready.</p>
             </div>
 
             <div class="action-buttons">
                 <a href="/" class="btn btn-danger">Retry Payment</a>
-                <a href="/" class="btn btn-secondary">Analyze Another Resume</a>
+                <a href="/" class="btn btn-secondary">Analyse another resume</a>
             </div>
         </div>
 
         <p class="footer-text">
-            © 2026 ScreenCV - Your Resume Vs The Job
+            © 2026 BIOSYNC - Your Resume Vs The Job
         </p>
     </div>
 
     <script>
-        // Get URL parameters
+        // ===== WHICH VIEW =====
         const params = new URLSearchParams(window.location.search);
-        const status = params.get('status') || 'captured';
+        const status = (params.get('status') || 'captured').toLowerCase();
         const errorMessage = params.get('message') || params.get('errorMessage');
+        const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-        console.log('[Success Page] Status:', status);
-        console.log('[Success Page] Error Message:', errorMessage);
+        function storedSubmissionId() {
+            try { return sessionStorage.getItem('submissionId') || ''; } catch (err) { return ''; }
+        }
 
-        // Show appropriate view based on status
-        document.getElementById('success-view').classList.add('hidden');
-        document.getElementById('failed-view').classList.add('hidden');
-        document.getElementById('cancelled-view').classList.add('hidden');
+        const submissionId = (params.get('submissionId') || storedSubmissionId()).trim();
+        const show = id => document.getElementById(id).classList.remove('hidden');
+        const hide = id => document.getElementById(id).classList.add('hidden');
 
-        if (status === 'captured' || status === 'CAPTURED') {
-            console.log('[Success Page] Showing SUCCESS view');
-            document.getElementById('success-view').classList.remove('hidden');
-        } else if (status === 'failed' || status === 'FAILED') {
-            console.log('[Success Page] Showing FAILED view');
-            document.getElementById('failed-view').classList.remove('hidden');
-            
-            // Show error message if provided
+        if (status === 'failed') {
+            show('failed-view');
             if (errorMessage) {
                 const errorBox = document.getElementById('error-message');
-                errorBox.textContent = '❌ ' + decodeURIComponent(errorMessage);
+                errorBox.textContent = '❌ ' + errorMessage;
                 errorBox.classList.remove('hidden');
             }
-        } else if (status === 'cancelled' || status === 'CANCELLED') {
-            console.log('[Success Page] Showing CANCELLED view');
-            document.getElementById('cancelled-view').classList.remove('hidden');
+        } else if (status === 'cancelled') {
+            show('cancelled-view');
+        } else if (UUID_PATTERN.test(submissionId)) {
+            show('progress-view');
+            startProgress(submissionId);
         } else {
-            console.log('[Success Page] Unknown status, showing SUCCESS as default');
-            document.getElementById('success-view').classList.remove('hidden');
+            show('success-view');
+        }
+
+        // ===== LIVE PROGRESS =====
+        // Every step shown here comes from the server's answer about this
+        // submission. The timer counts from the moment the payment was confirmed.
+        function startProgress(id) {
+            const POLL_MS = 2500;          // how often to ask while work is under way
+            const SLOW_POLL_MS = 10000;    // how often to ask once it is delayed
+            const GIVE_UP_MS = 6 * 60 * 1000;
+            const STEP_IDS = ['step-payment', 'step-analysing', 'step-sending', 'step-done'];
+
+            const pageOpenedAt = Date.now();
+            let timerStartedAt = Date.now();
+            let timerOffsetSeconds = 0;
+            let timerSynced = false;
+            let finished = false;
+            let failures = 0;
+            let pollTimer = null;
+
+            const timerEl = document.getElementById('timer');
+
+            function elapsedSeconds() {
+                return timerOffsetSeconds + Math.floor((Date.now() - timerStartedAt) / 1000);
+            }
+
+            function formatTime(totalSeconds) {
+                const s = Math.max(0, Math.round(totalSeconds));
+                return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+            }
+
+            const tick = setInterval(() => {
+                if (!finished) timerEl.textContent = formatTime(elapsedSeconds());
+            }, 500);
+
+            // states: array of 'pending' | 'active' | 'done' | 'problem', one per step
+            function setSteps(states) {
+                STEP_IDS.forEach((stepId, index) => {
+                    const el = document.getElementById(stepId);
+                    el.classList.remove('active', 'done', 'problem');
+                    if (states[index] !== 'pending') el.classList.add(states[index]);
+                });
+            }
+
+            function setText(elementId, text) {
+                document.getElementById(elementId).textContent = text;
+            }
+
+            function showReportButton(reportUrl) {
+                // Only ever link to a report page on this site
+                if (typeof reportUrl === 'string' && /^\/report\/[0-9a-f-]{36}$/i.test(reportUrl)) {
+                    const button = document.getElementById('viewReportBtn');
+                    button.href = reportUrl;
+                    button.classList.remove('hidden');
+                }
+                show('resultActions');
+            }
+
+            function stop(finalSeconds) {
+                finished = true;
+                clearInterval(tick);
+                if (pollTimer) clearTimeout(pollTimer);
+                if (typeof finalSeconds === 'number') timerEl.textContent = formatTime(finalSeconds);
+            }
+
+            function showDone(data) {
+                const seconds = typeof data.seconds === 'number' ? data.seconds : elapsedSeconds();
+                stop(seconds);
+                timerEl.classList.add('finished');
+                setText('timerLabel', 'Total time');
+                setSteps(['done', 'done', 'done', 'done']);
+                setText('progressTitle', 'Your report is ready');
+                setText('progressSubtitle', 'Thank you. Your analysis is complete.');
+
+                const count = typeof data.requirementCount === 'number' ? data.requirementCount : 0;
+                let detail = '';
+                if (count > 0 && seconds > 0 && seconds <= 90) {
+                    detail = 'We checked your resume against ' + count + ' job requirement' + (count === 1 ? '' : 's') + ' in ' + seconds + ' seconds.';
+                } else if (count > 0) {
+                    detail = 'We checked your resume against ' + count + ' job requirement' + (count === 1 ? '' : 's') + '.';
+                }
+                setText('resultDetail', detail);
+                setText('resultEmail', data.emailHint
+                    ? 'It has been emailed to ' + data.emailHint + '. If you do not see it, please check your spam folder.'
+                    : 'It has been emailed to you. If you do not see it, please check your spam folder.');
+                hide('delayBox');
+                show('resultBox');
+                showReportButton(data.reportUrl);
+            }
+
+            function showReadyWithoutEmail(data) {
+                stop();
+                setSteps(['done', 'done', 'problem', 'pending']);
+                setText('progressTitle', 'Your report is ready');
+                setText('progressSubtitle', 'Your analysis is complete.');
+                setText('resultHeadline', 'We could not send the email just now.');
+                setText('resultDetail', 'Your report is safe, and you can open it with the button below. Our team has been told that the email did not go out.');
+                setText('resultEmail', '');
+                hide('delayBox');
+                show('resultBox');
+                showReportButton(data.reportUrl);
+            }
+
+            function showDelayed(isProblem) {
+                setSteps(isProblem ? ['done', 'problem', 'pending', 'pending'] : ['done', 'active', 'pending', 'pending']);
+                setText('progressTitle', 'Payment received');
+                setText('progressSubtitle', 'Your report is taking longer than usual.');
+                show('delayBox');
+                show('resultActions');
+            }
+
+            function showStoppedWatching() {
+                stop();
+                setText('progressSubtitle', 'We have stopped checking from this page.');
+                setText('delayHeadline', 'Your report will arrive by email.');
+                show('delayBox');
+                show('resultActions');
+            }
+
+            function handle(data) {
+                // Start the timer from the moment of payment, as the server recorded it
+                if (!timerSynced && typeof data.elapsedSeconds === 'number' && data.elapsedSeconds >= 0 && data.elapsedSeconds <= 600) {
+                    timerOffsetSeconds = data.elapsedSeconds;
+                    timerStartedAt = Date.now();
+                    timerSynced = true;
+                }
+
+                switch (data.stage) {
+                    case 'awaiting_payment':
+                        setSteps(['active', 'pending', 'pending', 'pending']);
+                        setText('progressTitle', 'Confirming your payment');
+                        return POLL_MS;
+                    case 'analysing':
+                        setSteps(['done', 'active', 'pending', 'pending']);
+                        setText('progressTitle', 'Payment received');
+                        return POLL_MS;
+                    case 'sending':
+                        setSteps(['done', 'done', 'active', 'pending']);
+                        setText('progressTitle', 'Almost there');
+                        return POLL_MS;
+                    case 'done':
+                        showDone(data);
+                        return null;
+                    case 'ready_no_email':
+                        showReadyWithoutEmail(data);
+                        return null;
+                    case 'delayed':
+                        showDelayed(true);
+                        return SLOW_POLL_MS;
+                    default:
+                        return POLL_MS;
+                }
+            }
+
+            async function poll() {
+                if (finished) return;
+                if (Date.now() - pageOpenedAt > GIVE_UP_MS) {
+                    showStoppedWatching();
+                    return;
+                }
+
+                let next = POLL_MS;
+                try {
+                    const response = await fetch('/api/candidate/status?submissionId=' + encodeURIComponent(id), { cache: 'no-store' });
+                    if (!response.ok) throw new Error('status ' + response.status);
+                    const data = await response.json();
+                    if (!data || data.success !== true) throw new Error('unexpected reply');
+                    failures = 0;
+                    next = handle(data);
+                } catch (err) {
+                    failures++;
+                    console.warn('[Progress] Could not check status:', err.message);
+                    // The report is still being made on the server. After a few
+                    // misses, say so, and keep trying more slowly.
+                    if (failures >= 3) {
+                        showDelayed(false);
+                        next = SLOW_POLL_MS;
+                    }
+                }
+
+                if (next !== null && !finished) pollTimer = setTimeout(poll, next);
+            }
+
+            setSteps(['done', 'active', 'pending', 'pending']);
+            poll();
         }
     </script>
 </body>

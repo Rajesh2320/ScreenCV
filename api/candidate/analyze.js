@@ -23,6 +23,8 @@
 //     interview questions with talking points, better-fit roles). If that
 //     call fails the report is still sent, without those sections. Token and
 //     cost totals saved to the database cover both calls.
+// 10. Passes the score calculation to the report, so the report can show how
+//     the overall score was worked out from the requirement rows.
 
 const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis, generateCoachingExtras } = require("../../lib/claude-scoring");
@@ -138,6 +140,7 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
       careerProgression: analysisData.career_progression || "",
       achievementScore: analysisData.achievement_score || 0,
       scoringLogic: analysisData.scoring_logic || "",
+      scoreCalculation: analysisData.score_calculation || null,
       matchCategory: analysisData.match_category || "Partial Match",
       categoryEvidence: analysisData.category_evidence || "",
       scoringBreakdown: analysisData.factor_scores || {},

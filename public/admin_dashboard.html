@@ -17,6 +17,7 @@
           escaped before it is shown, so it cannot run as code in this page.
        5. The "Avg Analysis Time" figure was a random number. It now shows
           "n/a" until a real measurement exists.
+       6. Tables no longer spill outside their box when a value is very long.
     -->
     <style>
         :root {
@@ -370,6 +371,28 @@
 
         table tr:hover {
             background: var(--bg-primary);
+        }
+
+        /* Tables stay inside their box: long values wrap within the cell,
+           IDs stay on one line, and anything still too wide scrolls sideways. */
+        #paymentsContainer, #analyticsContainer, #incidentsContainer {
+            overflow-x: auto;
+        }
+
+        table td {
+            text-align: left;
+        }
+
+        /* Dates, amounts, IDs and status labels stay on one line */
+        table td.nowrap,
+        table td code,
+        .status-badge {
+            white-space: nowrap;
+        }
+
+        /* Free-text names may be very long with no spaces: let them wrap */
+        table td.wrap-any {
+            overflow-wrap: anywhere;
         }
 
         .status-badge {
@@ -1313,7 +1336,7 @@
         function paymentRowHtml(payment) {
             const statusClass = 'status-' + safeClass(payment.status || 'pending');
             const codeStyle = 'background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 11px;';
-            return `<tr><td>${esc(payment.date)}</td><td>${esc(payment.email)}</td><td>${esc(payment.name)}</td><td>${esc(payment.jobTitle)}</td><td>${esc(payment.amount)}</td><td><code style="${codeStyle}">${esc(payment.razorpayOrderId)}</code></td><td><code style="${codeStyle}">${esc(payment.razorpayPaymentId)}</code></td><td><span class="status-badge ${statusClass}">${esc(payment.status)}</span></td></tr>`;
+            return `<tr><td class="nowrap">${esc(payment.date)}</td><td>${esc(payment.email)}</td><td class="wrap-any">${esc(payment.name)}</td><td>${esc(payment.jobTitle)}</td><td class="nowrap">${esc(payment.amount)}</td><td><code style="${codeStyle}">${esc(payment.razorpayOrderId)}</code></td><td><code style="${codeStyle}">${esc(payment.razorpayPaymentId)}</code></td><td><span class="status-badge ${statusClass}">${esc(payment.status)}</span></td></tr>`;
         }
 
         const PAYMENT_TABLE_HEAD = '<thead><tr><th>Date</th><th>Email</th><th>Name</th><th>Job Title</th><th>Amount</th><th>Order ID</th><th>Payment ID</th><th>Status</th></tr></thead>';
@@ -1400,7 +1423,7 @@
         }
 
         function analyticsRowHtml(row) {
-            return `<tr><td>${esc(row.date)}</td><td>${esc(row.submissions)}</td><td>${esc(row.analyzed)}</td><td>₹${esc(row.ibe)}</td><td>₹${esc(row.claudeCost)}</td><td>₹${esc(row.razorpayCost)}</td><td><strong>₹${esc(row.netProfit)}</strong></td></tr>`;
+            return `<tr><td class="nowrap">${esc(row.date)}</td><td>${esc(row.submissions)}</td><td>${esc(row.analyzed)}</td><td>₹${esc(row.ibe)}</td><td>₹${esc(row.claudeCost)}</td><td>₹${esc(row.razorpayCost)}</td><td><strong>₹${esc(row.netProfit)}</strong></td></tr>`;
         }
 
         const ANALYTICS_TABLE_HEAD = '<thead><tr><th>Date</th><th>Submissions</th><th>Analyzed</th><th>IBE 💰</th><th>Claude Cost 🤖</th><th>Razorpay 💳</th><th>Net Profit 📈</th></tr></thead>';
@@ -1542,7 +1565,7 @@
         function incidentRowHtml(incident) {
             const statusClass = incident.status === 'unresolved' ? 'status-unresolved' : 'status-resolved';
             const date = incident.created_at ? new Date(incident.created_at).toLocaleDateString() : 'N/A';
-            return `<tr><td>${esc(date)}</td><td><span style="background: #ffebee; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">${esc(incident.incident_type || 'UNKNOWN')}</span></td><td><strong>${esc(incident.candidate_name || 'Unknown')}</strong></td><td>${esc(incident.email || 'N/A')}</td><td>₹${esc(incident.amount || 'N/A')}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 10px;">${esc(incident.razorpay_order_id || 'N/A')}</code></td><td><span class="status-badge ${statusClass}">${esc(incident.status)}</span></td></tr>`;
+            return `<tr><td class="nowrap">${esc(date)}</td><td><span style="background: #ffebee; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold;">${esc(incident.incident_type || 'UNKNOWN')}</span></td><td class="wrap-any"><strong>${esc(incident.candidate_name || 'Unknown')}</strong></td><td>${esc(incident.email || 'N/A')}</td><td class="nowrap">₹${esc(incident.amount || 'N/A')}</td><td><code style="background: var(--bg-primary); padding: 4px 8px; border-radius: 3px; font-size: 10px;">${esc(incident.razorpay_order_id || 'N/A')}</code></td><td><span class="status-badge ${statusClass}">${esc(incident.status)}</span></td></tr>`;
         }
 
         const INCIDENT_TABLE_HEAD = '<thead><tr><th>Date</th><th>Type</th><th>Candidate</th><th>Email</th><th>Amount</th><th>Order ID</th><th>Status</th></tr></thead>';

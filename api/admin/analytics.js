@@ -7,6 +7,8 @@
 //     valid admin session (see lib/admin-auth.js).
 //  2. getSubmissionStats no longer prints the request headers to the logs.
 //     Those headers included the admin password on every dashboard refresh.
+//  3. Income is now the sum of what customers actually paid, instead of ₹99
+//     multiplied by the number of paid reports. Needed for discount codes.
 
 const { supabase } = require("../../lib/supabase-client");
 const { requireAdmin } = require("../../lib/admin-auth");
@@ -25,7 +27,7 @@ async function getSubmissionStats(req, res) {
     // Fetch all submissions
     const { data: submissions, error: submissionsError } = await supabase
       .from("candidate_submissions")
-      .select("id,created_at,extraction_cost_inr,email_sent,payment_status");
+      .select("id,created_at,extraction_cost_inr,email_sent,payment_status,payment_amount");
 
     if (submissionsError) {
       console.error("[ADMIN] ❌ Submissions error:", submissionsError);
@@ -74,8 +76,15 @@ async function getSubmissionStats(req, res) {
     }
 
     // Financial Breakdown
-    const paidSubmissions = submissions?.filter(s => s.payment_status === "captured").length || 0;
-    const totalIBE = paidSubmissions * 99;  // Income Before Expenses (what customer paid)
+    // Income is what customers actually paid. With discount codes that is no
+    // longer always ₹99, so the saved payment amounts are added up. A paid
+    // submission with no amount saved (older rows) is counted at ₹99.
+    const paidRows = submissions?.filter(s => s.payment_status === "captured") || [];
+    const paidSubmissions = paidRows.length;
+    const totalIBE = parseFloat(paidRows.reduce((sum, s) => {
+      const paid = parseFloat(s.payment_amount);
+      return sum + (Number.isFinite(paid) && paid > 0 ? paid : 99);
+    }, 0).toFixed(2));  // Income Before Expenses (what customers paid)
 
     // Razorpay charges: 2% + ₹3 per transaction (standard for credit/debit cards)
     const razorpayPercentage = 0.02;

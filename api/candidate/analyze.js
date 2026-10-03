@@ -25,6 +25,10 @@
 //     cost totals saved to the database cover both calls.
 // 10. Passes the score calculation to the report, so the report can show how
 //     the overall score was worked out from the requirement rows.
+// 11. The email now has a "View your report" button that opens the report as
+//     a web page, and says how many requirements were checked and how long it
+//     took (when it was quick). The site address for the link comes from the
+//     request that started the work, passed in as paymentData.baseUrl.
 
 const { supabase } = require("../../lib/supabase-client");
 const { generateRecruiterAnalysis, generateCoachingExtras } = require("../../lib/claude-scoring");
@@ -83,7 +87,21 @@ function pickCandidateName(nameFromAnalysis, resumeText) {
   return "Candidate";
 }
 
+// The public address of this site, taken from the request that started the
+// work (so it is always the domain the customer is actually using). The
+// PUBLIC_SITE_URL setting overrides it if present.
+function publicBaseUrl(req) {
+  const configured = (process.env.PUBLIC_SITE_URL || "").trim().replace(/\/+$/, "");
+  if (/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(configured)) return configured;
+
+  const host = String(req?.headers?.["x-forwarded-host"] || req?.headers?.host || "").split(",")[0].trim();
+  if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return "";
+  const proto = String(req?.headers?.["x-forwarded-proto"] || "https").split(",")[0].trim() === "http" ? "http" : "https";
+  return `${proto}://${host}`;
+}
+
 async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobTitle, candidateEmail, feedbackToken, paymentData) {
+  const startedAt = Date.now();
   try {
     console.log(`[ANALYZE] Starting for submission: ${submissionId}`);
 
@@ -214,6 +232,23 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
     let emailSent = false;
     let emailError = null;
     try {
+      // "View your report" button: opens the report as a web page, which is
+      // easier than an attachment on a phone. Shown only when the site address
+      // and the saved report's id are both known.
+      const baseUrl = (paymentData && paymentData.baseUrl) || publicBaseUrl(null);
+      const reportUrl = baseUrl && reviewId ? `${baseUrl}/report/${encodeURIComponent(reviewId)}` : "";
+      const viewButton = reportUrl
+        ? `<p style="margin: 22px 0;"><a href="${escapeHtml(reportUrl)}" style="display: inline-block; background: #667eea; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">View your report</a></p>
+          <p style="font-size: 13px; color: #666;">The link stays active for 30 days. The report is also attached to this email.</p>`
+        : "";
+
+      // How much was checked, and how quickly. Stated only when it was quick.
+      const secondsTaken = Math.round((Date.now() - startedAt) / 1000);
+      const requirementCount = Array.isArray(analysisData.job_match_analysis) ? analysisData.job_match_analysis.length : 0;
+      const speedLine = requirementCount > 0 && secondsTaken > 0 && secondsTaken <= 90
+        ? `<p>We checked your resume against ${requirementCount} job requirement${requirementCount === 1 ? "" : "s"} in ${secondsTaken} second${secondsTaken === 1 ? "" : "s"}.</p>`
+        : "";
+
       // The rating page is not live yet, so the email asks for feedback by
       // reply instead of linking to /feedback?token=... (restore the link here
       // once that page works).
@@ -221,7 +256,9 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <p>Hello,</p>
           <p>Thank you for choosing ScreenCV.</p>
-          <p>Your analysis report for the <strong>${escapeHtml(jobTitle)}</strong> position${companyName ? ` at <strong>${escapeHtml(companyName)}</strong>` : ""} is attached to this email.</p>
+          <p>Your analysis report for the <strong>${escapeHtml(jobTitle)}</strong> position${companyName ? ` at <strong>${escapeHtml(companyName)}</strong>` : ""} is ready${reportUrl ? "" : " and attached to this email"}.</p>
+          ${speedLine}
+          ${viewButton}
           <p>We would value your feedback. If you have any comments on the report, or suggestions for how we can improve ScreenCV, simply reply to this email.</p>
           <p>Regards,<br>Team ScreenCV</p>
         </div>
@@ -346,4 +383,5 @@ async function handler(req, res) {
 module.exports = {
   handler,
   analyzeResumeVsJob,
+  publicBaseUrl,
 };

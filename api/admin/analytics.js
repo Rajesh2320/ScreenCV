@@ -1,56 +1,28 @@
 // screencv/api/admin/analytics.js
-// Clean, working analytics endpoint
+// Admin analytics endpoints
+//
+// CHANGES
+//  1. checkSuperAdmin used to accept any request that carried an admin's
+//     email address in a header, with no proof of login. It now requires a
+//     valid admin session (see lib/admin-auth.js).
+//  2. getSubmissionStats no longer prints the request headers to the logs.
+//     Those headers included the admin password on every dashboard refresh.
 
 const { supabase } = require("../../lib/supabase-client");
+const { requireAdmin } = require("../../lib/admin-auth");
 
-// ===== MIDDLEWARE: Check if user is super admin =====
-async function checkSuperAdmin(req, res, next) {
-  try {
-    console.log("[ADMIN] 🔵 checkSuperAdmin middleware called");
-    const userEmail = req.headers["x-admin-email"];
-    console.log("[ADMIN] 🔵 Admin email from header:", userEmail);
-    
-    if (!userEmail) {
-      console.log("[ADMIN] ❌ No admin email provided");
-      return res.status(401).json({ error: "Unauthorized: No admin email provided" });
-    }
-
-    console.log("[ADMIN] 🔵 Querying admin_users table...");
-    const { data: admin, error } = await supabase
-      .from("admin_users")
-      .select("*")
-      .eq("email", userEmail)
-      .eq("is_active", true)
-      .single();
-
-    if (error) {
-      console.error("[ADMIN] ❌ Database error:", error);
-    }
-
-    if (error || !admin) {
-      console.warn(`[ADMIN] ❌ Unauthorized access attempt by: ${userEmail}`);
-      return res.status(403).json({ error: "Forbidden: User not authorized as super admin" });
-    }
-
-    console.log("[ADMIN] ✅ Admin verified:", admin.email);
-    req.adminUser = admin;
-    console.log("[ADMIN] 🟢 Calling next() to proceed to route handler");
-    next();
-  } catch (err) {
-    console.error("[ADMIN] ❌ Middleware error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
+// ===== MIDDLEWARE: Check that the request comes from a logged-in admin =====
+// Kept under its old name so any file that still imports it is protected.
+function checkSuperAdmin(req, res, next) {
+  return requireAdmin(req, res, next);
 }
 
 // ===== GET SUBMISSION STATS (for dashboard login + stats display) =====
 async function getSubmissionStats(req, res) {
   try {
-    console.log("[ADMIN] 🔵 getSubmissionStats() called");
-    console.log("[ADMIN] 🔵 Request headers:", req.headers);
-    console.log("[ADMIN] 🔵 Admin user:", req.adminUser?.email || "NO ADMIN USER");
+    console.log("[ADMIN] 🔵 getSubmissionStats() called by:", req.admin?.email || "unknown");
 
     // Fetch all submissions
-    console.log("[ADMIN] 🔵 Fetching submissions...");
     const { data: submissions, error: submissionsError } = await supabase
       .from("candidate_submissions")
       .select("id,created_at,extraction_cost_inr,email_sent,payment_status");
@@ -59,10 +31,8 @@ async function getSubmissionStats(req, res) {
       console.error("[ADMIN] ❌ Submissions error:", submissionsError);
       throw submissionsError;
     }
-    console.log(`[ADMIN] ✅ Got ${submissions?.length || 0} submissions`);
 
     // Fetch all reviews
-    console.log("[ADMIN] 🔵 Fetching reviews...");
     const { data: reviews, error: reviewsError } = await supabase
       .from("candidate_reviews")
       .select("id,submission_id,analysis_cost_inr,created_at");
@@ -71,7 +41,6 @@ async function getSubmissionStats(req, res) {
       console.error("[ADMIN] ❌ Reviews error:", reviewsError);
       throw reviewsError;
     }
-    console.log(`[ADMIN] ✅ Got ${reviews?.length || 0} reviews`);
 
     // Calculate totals
     const totalSubmissions = submissions?.length || 0;
@@ -104,19 +73,17 @@ async function getSubmissionStats(req, res) {
       });
     }
 
-    // ✅ Financial Breakdown
+    // Financial Breakdown
     const paidSubmissions = submissions?.filter(s => s.payment_status === "captured").length || 0;
     const totalIBE = paidSubmissions * 99;  // Income Before Expenses (what customer paid)
-    
-    // ✅ Razorpay charges: 2% + ₹3 per transaction (standard for credit/debit cards)
-    // For UPI: 0% + ₹0, but we'll use standard card rate as default
-    // Actual formula: (IBE × 0.02) + (3 × number_of_transactions)
+
+    // Razorpay charges: 2% + ₹3 per transaction (standard for credit/debit cards)
     const razorpayPercentage = 0.02;
     const razorpayFixedPerTransaction = 3;
     const totalRazorpayCharges = parseFloat((
       (totalIBE * razorpayPercentage) + (razorpayFixedPerTransaction * paidSubmissions)
     ).toFixed(2));
-    
+
     // Net Profit = IBE - Claude costs - Razorpay charges
     const netProfit = parseFloat((totalIBE - totalCost - totalRazorpayCharges).toFixed(2));
 
@@ -135,10 +102,8 @@ async function getSubmissionStats(req, res) {
     };
 
     console.log(`[ADMIN] ✅ Stats calculated - Submissions: ${totalSubmissions}, Analyzed: ${analyzedCount}, IBE: ₹${totalIBE}, Claude Cost: ₹${totalCost.toFixed(2)}, Razorpay: ₹${totalRazorpayCharges}, Net Profit: ₹${netProfit}`);
-    console.log("[ADMIN] 🟢 SENDING RESPONSE:", JSON.stringify(responseData));
 
     res.json(responseData);
-    console.log("[ADMIN] ✅ Response sent successfully");
   } catch (error) {
     console.error("[ADMIN] Error fetching submission stats:", error.message);
     return res.status(500).json({ success: false, error: error.message });
@@ -209,7 +174,7 @@ async function toggleToolStatus(req, res) {
 
     if (error) throw error;
 
-    console.log(`[ADMIN] Tool status toggled to: ${newValue}`);
+    console.log(`[ADMIN] Tool status toggled to: ${newValue} by ${req.admin?.email || "unknown"}`);
 
     return res.json({
       success: true,

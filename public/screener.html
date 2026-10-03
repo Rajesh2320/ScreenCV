@@ -4,6 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BIOSYNC - AI Resume Analysis</title>
+    <!--
+      CHANGES
+       1. The checkout logo is now a properly encoded image. The old one was a
+          raw SVG string, which the browser tried to fetch from this site and
+          got a "404 not found" on every visit.
+       2. The list of what the customer gets now matches what is delivered
+          (the old list promised a downloadable PDF and "instant" analysis).
+       3. The resume is checked by file extension and size before upload. The
+          old check relied on a file type some browsers leave blank, and it
+          accepted old .doc files, which cannot be read.
+       4. The job description must be at least 50 characters, checked on step 1
+          instead of failing at the payment step.
+       5. Error messages at the payment step stay on screen until the next
+          attempt. They used to disappear after 5 seconds.
+    -->
     
     <!-- Razorpay Script -->
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
@@ -437,7 +452,7 @@
                 <h2>Step 1: Job Details</h2>
                 <div class="form-group">
                     <label>Your Email</label>
-                    <span class="helper-text">💡 We'll send your detailed analysis report and feedback link to this email</span>
+                    <span class="helper-text">💡 We'll send your detailed analysis report to this email</span>
                     <input type="email" id="candidateEmail" placeholder="your@email.com">
                 </div>
                 <div class="form-group">
@@ -459,9 +474,9 @@
             <div id="step2" class="step-content">
                 <h2>Step 2: Upload Resume</h2>
                 <div class="form-group">
-                    <label>Resume File (PDF, DOC, DOCX, TXT)</label>
-                    <span class="helper-text">📄 Upload your resume. We support PDF, DOC, DOCX, and TXT formats.</span>
-                    <input type="file" id="resumeFile" accept=".pdf,.doc,.docx,.txt">
+                    <label>Resume File (PDF, DOCX or TXT)</label>
+                    <span class="helper-text">📄 Upload your resume as a PDF, a Word .docx file or a .txt file, up to 4 MB.</span>
+                    <input type="file" id="resumeFile" accept=".pdf,.docx,.txt">
                 </div>
                 <div class="error" id="step2Error"></div>
                 <div class="button-group">
@@ -481,16 +496,17 @@
                 <div class="price-tag">₹99</div>
 
                 <div class="benefits-list">
-                    <p>Instant analysis</p>
-                    <p>Interview tips & recommendations</p>
-                    <p>Detailed report with downloadable PDF</p>
+                    <p>Your match score, with the working shown</p>
+                    <p>Suggested rewrites for your resume and missing keywords</p>
+                    <p>Interview questions to prepare for, with talking points</p>
+                    <p>Report by email in about a minute, with a link to view it online</p>
                     <p>Secure payment via Razorpay</p>
                 </div>
 
                 <!-- Loading state -->
                 <div id="paymentLoading" class="loading">
                     <span class="spinner"></span>
-                    <span>Creating payment order...</span>
+                    <span id="paymentLoadingText">Creating payment order...</span>
                 </div>
 
                 <!-- Payment button -->
@@ -519,6 +535,15 @@
         let currentStep = 1;
         const API_BASE = "/api";
 
+        // The same limits the server applies, checked here first so the
+        // customer hears about a problem before reaching the payment step.
+        const MIN_JOB_DESCRIPTION_CHARS = 50;
+        const MAX_RESUME_BYTES = 4 * 1024 * 1024;
+        const ALLOWED_RESUME_EXTENSIONS = ["pdf", "docx", "txt"];
+
+        // Logo for the Razorpay checkout window, as a base64 image
+        const CHECKOUT_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMjAwIj48Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9Ijk1IiBmaWxsPSIjZmY2YjM1IiBvcGFjaXR5PSIwLjkiLz48Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMDAiIHI9IjcwIiBmaWxsPSIjZmY4YzQyIiBvcGFjaXR5PSIwLjk1Ii8+PGNpcmNsZSBjeD0iMTAwIiBjeT0iMTAwIiByPSI0NSIgZmlsbD0iI2ZmZDkzZCIgb3BhY2l0eT0iMSIvPjxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iMjAiIGZpbGw9IndoaXRlIi8+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTAwLCAxMDApIj48bGluZSB4MT0iLTgiIHkxPSItOCIgeDI9IjgiIHkyPSI4IiBzdHJva2U9IiNkYzM1NDUiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGxpbmUgeDE9IjgiIHkxPSItOCIgeDI9Ii04IiB5Mj0iOCIgc3Ryb2tlPSIjZGMzNTQ1IiBzdHJva2Utd2lkdGg9IjMiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvZz48L3N2Zz4=";
+
         // ===== INIT =====
         async function init() {
             console.log("[Init] Initializing BIOSYNC screener...");
@@ -542,9 +567,12 @@
 
                 if (data && data.maintenanceMode && data.maintenanceMode === true) {
                     const notice = document.getElementById("maintenanceNotice");
-                    notice.innerHTML = `<div class="maintenance-notice">⚠️ ${data.maintenanceMessage || "BIOSYNC is under maintenance"}</div>`;
+                    const box = document.createElement("div");
+                    box.className = "maintenance-notice";
+                    box.textContent = "⚠️ " + (data.maintenanceMessage || "BIOSYNC is under maintenance");
+                    notice.replaceChildren(box);
                     
-                    // 🔴 NEW: DISABLE THE FORM
+                    // DISABLE THE FORM
                     const mainContent = document.getElementById("mainContent");
                     mainContent.style.opacity = "0.5";
                     mainContent.style.pointerEvents = "none";
@@ -613,6 +641,7 @@
             else if (!emailRegex.test(email)) error = "Please enter a valid email";
             else if (!jobTitle) error = "Please enter the job title";
             else if (!jobDesc) error = "Please paste the job description";
+            else if (jobDesc.length < MIN_JOB_DESCRIPTION_CHARS) error = "The job description is too short to analyse. Please paste the full job listing.";
 
             const errorEl = document.getElementById("step1Error");
             if (error) {
@@ -629,15 +658,26 @@
             const file = document.getElementById("resumeFile").files[0];
             const errorEl = document.getElementById("step2Error");
 
+            let error = "";
             if (!file) {
-                errorEl.textContent = "Please select a resume file";
-                errorEl.classList.add("show");
-                return false;
+                error = "Please select a resume file";
+            } else {
+                // Checked by the file name's ending. The browser's own "file type"
+                // is blank on some computers, which wrongly rejected good files.
+                const extension = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "";
+                if (extension === "doc") {
+                    error = "Old Word (.doc) files can't be read. Please save your resume as .docx or PDF and upload it again.";
+                } else if (!ALLOWED_RESUME_EXTENSIONS.includes(extension)) {
+                    error = "Please upload a PDF, DOCX or TXT file";
+                } else if (file.size > MAX_RESUME_BYTES) {
+                    error = "This file is larger than 4 MB. Please upload a smaller version of your resume.";
+                } else if (file.size === 0) {
+                    error = "This file is empty. Please choose another file.";
+                }
             }
 
-            const validTypes = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"];
-            if (!validTypes.includes(file.type)) {
-                errorEl.textContent = "Please upload a PDF, DOC, DOCX, or TXT file";
+            if (error) {
+                errorEl.textContent = error;
                 errorEl.classList.add("show");
                 return false;
             }
@@ -653,6 +693,12 @@
             }
         }
 
+        function setLoading(isLoading, text) {
+            const loading = document.getElementById("paymentLoading");
+            if (text) document.getElementById("paymentLoadingText").textContent = text;
+            loading.classList.toggle("show", isLoading);
+        }
+
         async function handleRazorpayPayment() {
             try {
                 const jobTitle = document.getElementById("jobTitle").value.trim();
@@ -660,13 +706,15 @@
                 const candidateEmail = document.getElementById("candidateEmail").value.trim();
                 const resumeFile = document.getElementById("resumeFile").files[0];
 
+                clearPaymentError();
+
                 if (!jobTitle || !jobDescription || !candidateEmail || !resumeFile) {
                     showPaymentError('Please complete Steps 1 & 2 first');
                     return;
                 }
 
                 // Show loading
-                document.getElementById("paymentLoading").classList.add("show");
+                setLoading(true, "Reading your resume and creating the payment order...");
                 document.getElementById("razorpayButton").disabled = true;
 
                 // Create FormData with file
@@ -682,18 +730,18 @@
                 
                 const orderResponse = await fetch('/api/candidate/razorpay-order', {
                     method: 'POST',
-                    body: formData,  // ✅ Send FormData with file, not JSON
+                    body: formData,  // Send FormData with file, not JSON
                 });
 
-                if (!orderResponse.ok) {
-                    const errorData = await orderResponse.json();
-                    throw new Error(errorData.error || 'Failed to create payment order');
+                let orderData = null;
+                try {
+                    orderData = await orderResponse.json();
+                } catch (parseError) {
+                    orderData = null;
                 }
 
-                const orderData = await orderResponse.json();
-
-                if (!orderData.success) {
-                    throw new Error(orderData.error || 'Failed to create order');
+                if (!orderResponse.ok || !orderData || !orderData.success) {
+                    throw new Error((orderData && orderData.error) || 'Failed to create payment order');
                 }
 
                 console.log('[Payment] ✅ Order created:', orderData.order.id);
@@ -705,8 +753,8 @@
                     currency: 'INR',
                     order_id: orderData.order.id,
                     name: 'BIOSYNC',
-                    description: `Resume Analysis for ${jobTitle}`,
-                    image: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="95" fill="%23ff6b35" opacity="0.9"/><circle cx="100" cy="100" r="70" fill="%23ff8c42" opacity="0.95"/><circle cx="100" cy="100" r="45" fill="%23ffd93d" opacity="1"/><circle cx="100" cy="100" r="20" fill="white"/><g transform="translate(100, 100)"><line x1="-8" y1="-8" x2="8" y2="8" stroke="%23dc3545" stroke-width="3" stroke-linecap="round"/><line x1="8" y1="-8" x2="-8" y2="8" stroke="%23dc3545" stroke-width="3" stroke-linecap="round"/></g></svg>',
+                    description: `Resume Analysis for ${jobTitle}`.slice(0, 250),
+                    image: CHECKOUT_LOGO,
                     handler: function(response) {
                         console.log('[Payment] ✅ Payment successful!');
                         verifyPayment(
@@ -722,7 +770,7 @@
                     modal: {
                         ondismiss: function() {
                             console.log('[Payment] Payment dismissed');
-                            document.getElementById("paymentLoading").classList.remove("show");
+                            setLoading(false);
                             document.getElementById("razorpayButton").disabled = false;
                             showPaymentError('Payment cancelled. Please try again.');
                         }
@@ -735,12 +783,12 @@
                 const rzp = new Razorpay(razorpayOptions);
                 rzp.open();
 
-                document.getElementById("paymentLoading").classList.remove("show");
+                setLoading(false);
 
             } catch (error) {
                 console.error('[Payment] Error:', error);
                 showPaymentError(error.message || 'Failed to process payment');
-                document.getElementById("paymentLoading").classList.remove("show");
+                setLoading(false);
                 document.getElementById("razorpayButton").disabled = false;
             }
         }
@@ -749,7 +797,8 @@
             try {
                 console.log('[Verify] Verifying payment...');
                 
-                document.getElementById("paymentLoading").classList.add("show");
+                clearPaymentError();
+                setLoading(true, "Confirming your payment...");
                 document.getElementById("razorpayButton").disabled = true;
 
                 const verifyResponse = await fetch('/api/candidate/razorpay-verify', {
@@ -778,29 +827,29 @@
                 console.log('[Verify] ✅ Payment verified successfully!');
 
                 // Store submission ID
-                sessionStorage.setItem('submissionId', submissionId);
+                try { sessionStorage.setItem('submissionId', submissionId); } catch (storageError) { /* not essential */ }
 
-                // Redirect to success page
-                setTimeout(() => {
-                    window.location.href = '/success.html?submissionId=' + submissionId;
-                }, 1500);
+                // Go to the progress page, which follows the report as it is prepared
+                setLoading(true, "Payment confirmed. Opening your report progress...");
+                window.location.href = '/success.html?submissionId=' + encodeURIComponent(submissionId);
 
             } catch (error) {
                 console.error('[Verify] Error:', error);
                 showPaymentError(error.message || 'Payment verification failed');
-                document.getElementById("paymentLoading").classList.remove("show");
+                setLoading(false);
                 document.getElementById("razorpayButton").disabled = false;
             }
         }
 
+        // The message stays until the customer tries again
         function showPaymentError(message) {
             const errorDiv = document.getElementById("paymentError");
             errorDiv.textContent = '❌ ' + message;
             errorDiv.classList.add("show");
+        }
 
-            setTimeout(() => {
-                errorDiv.classList.remove("show");
-            }, 5000);
+        function clearPaymentError() {
+            document.getElementById("paymentError").classList.remove("show");
         }
 
         function generateFeedbackToken() {

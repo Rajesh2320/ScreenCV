@@ -124,9 +124,12 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
 
     // Generate HTML report
     console.log(`[ANALYZE] Generating HTML report...`);
+    const companyName = analysisData.company_name || "";
+
     let htmlContent = await generateRecruiterReportHTML({
       candidateName,
       jobTitle,
+      companyName,
       overallScore,
       executiveSummary: analysisData.executive_summary || "",
       jobMatchAnalysis: analysisData.job_match_analysis || [],
@@ -214,7 +217,7 @@ async function analyzeResumeVsJob(submissionId, resumeText, jobDescription, jobT
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <p>Hello,</p>
           <p>Thank you for choosing ScreenCV.</p>
-          <p>Your analysis report for the <strong>${escapeHtml(jobTitle)}</strong> position is attached to this email.</p>
+          <p>Your analysis report for the <strong>${escapeHtml(jobTitle)}</strong> position${companyName ? ` at <strong>${escapeHtml(companyName)}</strong>` : ""} is attached to this email.</p>
           <p>We would value your feedback. If you have any comments on the report, or suggestions for how we can improve ScreenCV, simply reply to this email.</p>
           <p>Regards,<br>Team ScreenCV</p>
         </div>

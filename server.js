@@ -1,6 +1,10 @@
 // screencv/server.js
 // Simple Express server - back to basics, no routing complexity
 //
+// CHANGE: two new public addresses: /api/candidate/status (report progress,
+// used by the success page) and /report/:reviewId (a finished report as a web
+// page). Both live in api/candidate/report-status.js.
+//
 // CHANGE: every address under /api/admin now passes through adminGate, which
 // requires a logged-in admin session. The only exceptions are the login,
 // logout and public tool-status addresses (see lib/admin-auth.js).
@@ -34,6 +38,17 @@ try {
 } catch (err) {
   console.error("[Server] ❌ Could not load api/admin/routes.js - admin routes are DISABLED:", err.message);
   adminRoutes = (req, res) => res.status(503).json({ success: false, error: "Admin access is unavailable" });
+}
+
+// Report progress + "view your report" page. If the file cannot be loaded,
+// these two addresses answer "unavailable" and the rest of the site keeps working.
+let getReportStatus, viewReport;
+try {
+  ({ getReportStatus, viewReport } = require("./api/candidate/report-status"));
+} catch (err) {
+  console.error("[Server] ❌ Could not load api/candidate/report-status.js:", err.message);
+  getReportStatus = (req, res) => res.status(503).json({ success: false, error: "Status is unavailable" });
+  viewReport = (req, res) => res.status(503).send("This report is unavailable at the moment. Please use the copy attached to your email.");
 }
 
 // Feedback routes
@@ -154,6 +169,12 @@ console.log("[Server] ✅ Public tool status route registered");
 // ============================================
 
 app.post("/api/candidate/submit", submitResume);
+
+// Progress of a report after payment (polled by success.html)
+app.get("/api/candidate/status", getReportStatus);
+
+// A finished report, opened from the private link in the email
+app.get("/report/:reviewId", viewReport);
 
 console.log("[Server] ✅ Candidate routes registered");
 

@@ -667,6 +667,16 @@
                     case 'ready_no_email':
                         showReadyWithoutEmail(data);
                         return null;
+                    case 'code_used_up':
+                        stop();
+                        setSteps(['done', 'problem', 'pending', 'pending']);
+                        setText('progressTitle', 'No report was produced');
+                        setText('progressSubtitle', 'Your access code ran out before this payment was completed.');
+                        setText('delayHeadline', 'This access code has no uses left.');
+                        setText('delayDetail', 'This was a test payment, so no money was taken. Please ask for a new access code to run another analysis.');
+                        show('delayBox');
+                        show('resultActions');
+                        return null;
                     case 'delayed':
                         showDelayed(true);
                         return SLOW_POLL_MS;

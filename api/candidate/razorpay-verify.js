@@ -20,6 +20,9 @@
 //     database update that can only succeed for one caller.
 //  4. The order must belong to the submission it is being applied to.
 //  5. Signature comparison is timing-safe.
+//  6. Access codes: one use is counted when a report is about to be produced.
+//     With test payments, a code that has run out stops the report. With live
+//     payments the report is always produced, because the customer has paid.
 
 const crypto = require("crypto");
 const Razorpay = require("razorpay");
@@ -29,7 +32,16 @@ const { analyzeResumeVsJob, publicBaseUrl } = require("./analyze");
 const {
   RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET,
+  RAZORPAY_MODE,
 } = require("../../lib/constants");
+
+// Access / discount codes (loaded safely; see lib/access-codes.js)
+let accessCodes = null;
+try {
+  accessCodes = require("../../lib/access-codes");
+} catch (err) {
+  console.error("[Payment] ❌ Could not load lib/access-codes.js:", err.message);
+}
 
 // Column on candidate_submissions that holds the Razorpay order id
 const ORDER_ID_COLUMN = "razorpay_order_id";
@@ -189,6 +201,37 @@ async function confirmPaymentAndStartAnalysis({ submission, paymentId, orderId, 
 
     // The payment itself is confirmed, so carry on to the analysis
     console.warn(`${tag} ⚠️ Payment record insert failed, but continuing...`);
+  }
+
+  // ACCESS CODE: count one use now, at the moment a report is about to be made.
+  // This runs only for the caller that won the claim above, so a payment
+  // reported twice (browser and webhook) still counts as one use.
+  if (submission.access_code && accessCodes) {
+    const used = await accessCodes.consumeCode(submission.access_code);
+    const refused = !used.ok && used.reason !== "error";
+
+    if (refused && RAZORPAY_MODE !== "live") {
+      // Test payments only: the code ran out between the order and the payment.
+      // No report is made, and the progress page tells the tester why.
+      console.warn(`${tag} ⛔ Access code ${submission.access_code} refused (${used.reason}) - no report for submission ${submission.id}`);
+      await supabase.from("payment_incidents").insert({
+        incident_type: "ACCESS_CODE_EXHAUSTED",
+        submission_id: submission.id,
+        razorpay_payment_id: paymentId,
+        razorpay_order_id: orderId,
+        email: submission.email,
+        amount: amountINR,
+        description: `Access code ${submission.access_code} could not be used (${used.reason}); no report was produced. Test payment.`,
+        status: "resolved",
+      });
+      return { ok: true, alreadyProcessed: false, codeRefused: true };
+    }
+
+    if (!used.ok) {
+      // A customer who has paid real money always gets their report. The same
+      // applies if the count simply could not be updated.
+      console.warn(`${tag} ⚠️ Could not count a use of code ${submission.access_code} (${used.reason}) - producing the report anyway`);
+    }
   }
 
   // Start the analysis. waitUntil() tells Vercel to keep this function running

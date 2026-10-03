@@ -1,4 +1,4 @@
-# ScreenCV - Standalone Resume Analyzer
+# ScreenCV - Standalone Resume Analyzer - Production
 
 AI-powered resume analysis platform for job candidates. Analyze your resume against any job description in under 2 minutes for ₹99.
 

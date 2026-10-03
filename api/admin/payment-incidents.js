@@ -1,13 +1,37 @@
 // screencv/api/admin/payment-incidents.js
 // Admin dashboard: View and resolve payment incidents
+//
+// These addresses are protected by the admin session check in server.js
+// (lib/admin-auth.js). This file no longer trusts an "adminEmail" typed into
+// the request.
+//
+// CHANGES
+//  1. The admin who resolves an incident is taken from the logged-in session.
+//  2. limit / offset are parsed as numbers (they arrive as text, and adding
+//     text together produced the wrong page range).
+//  3. A manual re-run is only marked "resolved" if the report email was sent.
 
 const { supabase } = require("../../lib/supabase-client");
 const { analyzeResumeVsJob } = require("../candidate/analyze");
 
+function toInt(value, fallback, min, max) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+// The logged-in admin (set by the session check). Falls back to the old
+// request field only so the file still works if deployed before server.js.
+function resolvingAdmin(req) {
+  return (req.admin && req.admin.email) || (req.body && req.body.adminEmail) || null;
+}
+
 // Get all unresolved payment incidents
 async function getIncidents(req, res) {
   try {
-    const { status = "unresolved", limit = 50, offset = 0 } = req.query;
+    const { status = "unresolved" } = req.query;
+    const limit = toInt(req.query.limit, 50, 1, 500);
+    const offset = toInt(req.query.offset, 0, 0, 1000000);
 
     let query = supabase
       .from("payment_incidents")
@@ -94,12 +118,12 @@ async function getIncidentDetail(req, res) {
 async function resolveIncidentTriggerAnalysis(req, res) {
   try {
     const { incidentId } = req.params;
-    const { adminEmail } = req.body;
+    const adminEmail = resolvingAdmin(req);
 
     if (!adminEmail) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
-        error: "Admin email required",
+        error: "Not logged in",
       });
     }
 
@@ -131,7 +155,7 @@ async function resolveIncidentTriggerAnalysis(req, res) {
       });
     }
 
-    console.log(`[ResolveIncident] Triggering analysis for submission ${submission.id}...`);
+    console.log(`[ResolveIncident] ${adminEmail} is triggering analysis for submission ${submission.id}...`);
 
     // Trigger analysis
     try {
@@ -152,6 +176,14 @@ async function resolveIncidentTriggerAnalysis(req, res) {
 
       if (!analysisResult.success) {
         throw new Error(analysisResult.error);
+      }
+
+      // The report was produced but never reached the customer: not resolved yet
+      if (analysisResult.emailSent === false) {
+        throw new Error(
+          `Analysis completed (review ${analysisResult.reviewId}) but the email could not be sent: ` +
+            (analysisResult.emailError || "unknown error")
+        );
       }
 
       // Mark incident as resolved
@@ -202,12 +234,20 @@ async function resolveIncidentTriggerAnalysis(req, res) {
 async function resolveIncidentCustom(req, res) {
   try {
     const { incidentId } = req.params;
-    const { resolution_action, resolution_notes, adminEmail } = req.body;
+    const { resolution_action, resolution_notes } = req.body || {};
+    const adminEmail = resolvingAdmin(req);
 
-    if (!resolution_action || !resolution_notes || !adminEmail) {
+    if (!adminEmail) {
+      return res.status(401).json({
+        success: false,
+        error: "Not logged in",
+      });
+    }
+
+    if (!resolution_action || !resolution_notes) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: resolution_action, resolution_notes, adminEmail",
+        error: "Missing required fields: resolution_action, resolution_notes",
       });
     }
 
@@ -229,7 +269,7 @@ async function resolveIncidentCustom(req, res) {
       });
     }
 
-    console.log(`[ResolveCustom] ✅ Incident ${incidentId} resolved with action: ${resolution_action}`);
+    console.log(`[ResolveCustom] ✅ Incident ${incidentId} resolved by ${adminEmail} with action: ${resolution_action}`);
 
     res.json({
       success: true,

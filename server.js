@@ -1,6 +1,10 @@
 // screencv/server.js
 // Simple Express server - back to basics, no routing complexity
 //
+// CHANGE: access / discount codes. /api/candidate/check-code checks a code,
+// and /api/tool-status now tells the form page whether a code is required
+// (the REQUIRE_ACCESS_CODE setting). The logic lives in lib/access-codes.js.
+//
 // CHANGE: two new public addresses: /api/candidate/status (report progress,
 // used by the success page) and /report/:reviewId (a finished report as a web
 // page). Both live in api/candidate/report-status.js.
@@ -50,6 +54,18 @@ try {
   getReportStatus = (req, res) => res.status(503).json({ success: false, error: "Status is unavailable" });
   viewReport = (req, res) => res.status(503).send("This report is unavailable at the moment. Please use the copy attached to your email.");
 }
+
+// Access / discount codes. If the file cannot be loaded, the check address
+// answers "unavailable"; whether a code is still required is decided by the
+// REQUIRE_ACCESS_CODE setting, so a missing file can never open a locked site.
+let accessCodes = null;
+try {
+  accessCodes = require("./lib/access-codes");
+} catch (err) {
+  console.error("[Server] ❌ Could not load lib/access-codes.js:", err.message);
+}
+const accessCodeRequired = () =>
+  accessCodes ? accessCodes.isRequired() : String(process.env.REQUIRE_ACCESS_CODE || "").trim().toLowerCase() === "true";
 
 // Feedback routes
 const feedbackRoutes = require("./api/candidate/feedback");
@@ -151,6 +167,7 @@ app.get("/api/tool-status", async (req, res) => {
       active: toolActive,
       maintenanceMode: !toolActive,
       maintenanceMessage: maintenanceMessage,
+      accessCodeRequired: accessCodeRequired(),
     });
   } catch (error) {
     console.error("[Tool Status] Error:", error.message);
@@ -158,6 +175,7 @@ app.get("/api/tool-status", async (req, res) => {
       active: true,
       maintenanceMode: false,
       maintenanceMessage: "ScreenCV is under maintenance",
+      accessCodeRequired: accessCodeRequired(),
     });
   }
 });
@@ -169,6 +187,14 @@ console.log("[Server] ✅ Public tool status route registered");
 // ============================================
 
 app.post("/api/candidate/submit", submitResume);
+
+// Check an access / discount code before the form moves past step 1
+app.post("/api/candidate/check-code", (req, res) => {
+  if (!accessCodes) {
+    return res.status(503).json({ success: false, message: "Access codes are unavailable at the moment. Please try again shortly." });
+  }
+  return accessCodes.checkCodeHandler(req, res);
+});
 
 // Progress of a report after payment (polled by success.html)
 app.get("/api/candidate/status", getReportStatus);

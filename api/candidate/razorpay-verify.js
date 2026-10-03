@@ -25,7 +25,7 @@ const crypto = require("crypto");
 const Razorpay = require("razorpay");
 const { waitUntil } = require("@vercel/functions");
 const { supabase } = require("../../lib/supabase-client");
-const { analyzeResumeVsJob } = require("./analyze");
+const { analyzeResumeVsJob, publicBaseUrl } = require("./analyze");
 const {
   RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET,
@@ -114,7 +114,7 @@ async function runAnalysis(dbSubmission, paymentData) {
 // payment: only the first call does anything.
 //
 // Returns { ok: true, alreadyProcessed: boolean } or { ok: false, error }.
-async function confirmPaymentAndStartAnalysis({ submission, paymentId, orderId, amountINR, paymentMethod, razorpayStatus, source }) {
+async function confirmPaymentAndStartAnalysis({ submission, paymentId, orderId, amountINR, paymentMethod, razorpayStatus, source, baseUrl }) {
   const tag = `[Payment:${source}]`;
   const now = new Date().toISOString();
 
@@ -199,6 +199,7 @@ async function confirmPaymentAndStartAnalysis({ submission, paymentId, orderId, 
       orderId: orderId,
       paymentId: paymentId,
       amount: amountINR,
+      baseUrl: baseUrl || "",   // site address, for the "View your report" link in the email
     })
   );
 
@@ -297,6 +298,7 @@ async function verifyPayment(req, res) {
         paymentMethod: razorpayPayment.method,
         razorpayStatus: razorpayPayment.status,
         source: "browser",
+        baseUrl: typeof publicBaseUrl === "function" ? publicBaseUrl(req) : "",
       });
 
       if (!result.ok) {
